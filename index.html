@@ -928,7 +928,7 @@
     </div>
 
     <!-- Toast Alert -->
-    <div id="toast" class="fixed bottom-16 sm:bottom-20 right-4 sm:right-6 custom-btn px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl font-bold text-xs shadow-2xl opacity-0 pointer-events-none transition-all duration-300 transform translate-y-3 z-50 flex items-center gap-2 border border-white/20">
+    <div id="toast" class="fixed bottom-16 sm:bottom-20 right-4 sm:right-6 custom-btn px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl font-bold text-xs shadow-2xl opacity-0 pointer-events-none transition-all duration-300 transform translate-y-3 z-[200] flex items-center gap-2 border border-white/20">
         <span>✨</span> <span id="toast-msg">Copied to clipboard!</span>
     </div>
 
@@ -1204,10 +1204,6 @@
                     <button id="tab-journal" onclick="switchTab('journal')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">📖 Journal</button>
                     <button id="tab-flowtunes" onclick="switchTab('flowtunes')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">🎵 flowtunes</button>
                     <button id="tab-groups" onclick="switchTab('groups')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">👥 Groups</button>
-                    
-                    <button id="add-btn" onclick="addTimer()" class="w-7 h-7 flex items-center justify-center custom-btn text-xs rounded-lg transition-all active:scale-95 shadow ml-1 shrink-0" title="Add Item">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
-                    </button>
                 </nav>
 
                 <!-- Mobile bottom nav: 4 tabs + More sheet -->
@@ -1296,12 +1292,16 @@
                     </div>
                 </div>
                 <button onclick="openSearchPanel()" class="header-icon-btn" title="Search">🔍</button>
-                <button id="desktop-add-btn" onclick="addTimer()" class="header-icon-btn custom-btn" title="Add">+</button>
+                <button id="desktop-add-btn" onclick="addTimer()" class="flex items-center justify-center bg-violet-500 text-white hover:bg-violet-400 active:scale-95 transition-all font-bold text-[10px] sm:text-xs rounded-xl px-2 sm:px-3 py-1.5 gap-1 whitespace-nowrap border border-violet-400/30" title="Add">
+                    <span class="text-sm leading-none">+</span>
+                    <span id="desktop-add-label" class="whitespace-nowrap">New Timer</span>
+                </button>
                 <button onclick="cycleLayoutShortcut()" id="layout-shortcut-btn" class="header-icon-btn" title="Layout">田</button>
                 <button onclick="openNotificationsPanel()" class="header-icon-btn relative" title="Notifications">
                     🔔
                     <span id="notif-badge" class="hidden absolute -top-1 -right-1 min-w-[1rem] h-4 px-1 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center border border-[var(--bg-main)]">0</span>
                 </button>
+                <button onclick="togglePictureInPicture()" class="header-icon-btn flex" title="Picture-in-Picture">⧉</button>
                 <button onclick="openProfilePanel()" class="header-icon-btn p-0 overflow-hidden" title="Profile">
                     <span id="header-profile-avatar" class="w-full h-full flex items-center justify-center text-[11px] font-bold bg-white/10">?</span>
                 </button>
@@ -1387,6 +1387,7 @@
                 </label>
             </div>
             <button onclick="exportRoomData()" class="panel-menu-item">📥 Export room data</button>
+            <button onclick="importRoomData()" class="panel-menu-item">📤 Import room data</button>
             <button id="install-app-btn" onclick="promptInstallPWA(); closeProfilePanel();" class="panel-menu-item hidden">📲 Install app</button>
             <button onclick="openModal('changelog-modal'); renderChangelog(); closeProfilePanel();" class="panel-menu-item">🆕 What's New</button>
             <button id="privacy-toggle-btn" onclick="togglePrivateMode()" class="w-full text-left panel-menu-item" title="Private Mode">
@@ -1464,6 +1465,7 @@
                 <div id="help-query" class="panel-accordion-body hidden">
                     <p class="text-xs text-muted-custom mb-2">Have a question? Send us an email and we'll get back to you.</p>
                     <button onclick="sendFeedbackMail('query')" class="w-full py-2.5 custom-btn text-xs rounded-xl font-bold">Open Gmail</button>
+                    <p class="text-[10px] text-muted-custom mt-2 text-center">If Gmail doesn't open, email us at <button onclick="copyFeedbackEmail()" class="text-[var(--accent-primary)] underline hover:no-underline font-semibold"><span class="feedback-email-display"></span></button></p>
                 </div>
             </div>
             <div class="panel-accordion">
@@ -1478,6 +1480,7 @@
                         <span>💌</span>
                         <span>Send via Gmail</span>
                     </button>
+                    <p class="text-[10px] text-muted-custom mt-2 text-center">If Gmail doesn't open, email us at <button onclick="copyFeedbackEmail()" class="text-[var(--accent-primary)] underline hover:no-underline font-semibold"><span class="feedback-email-display"></span></button></p>
                 </div>
             </div>
         </div>
@@ -1869,6 +1872,12 @@
             return out;
         }
 
+        function redirectToHash(hash) {
+            const url = new URL(window.location.href);
+            url.hash = hash;
+            window.location.replace(url.toString());
+        }
+
         // Remember whether the user deliberately pasted a room hash in the
         // URL. If they did, and it differs from their logged-in account room,
         // we open that room anonymously rather than pulling them back to
@@ -1877,7 +1886,7 @@
         let ROOM_ID = INITIAL_HASH;
         if (!ROOM_ID) {
             ROOM_ID = generateRoomId();
-            window.location.hash = ROOM_ID;
+            history.replaceState(null, '', '#' + ROOM_ID);
         }
 
         // Every local save/load in the app goes through this so each room
@@ -2027,8 +2036,7 @@
             Object.keys(localStorage).forEach(key => {
                 if (key.endsWith(suffix)) localStorage.removeItem(key);
             });
-            window.location.hash = generateRoomId();
-            window.location.reload();
+            redirectToHash(generateRoomId());
         }
 
         async function linkAccountToCurrentRoom(uid) {
@@ -2050,13 +2058,12 @@
             }
         }
 
-        function resolveAccountDataConflict(choice) {
+        function resolveAccountDataConflict(_choice) {
             closeModal('account-data-modal');
             if (!pendingAccountUid) return;
             // Always redirect to the account's home room; local-vs-cloud merge
             // is handled automatically by the room listener once we land there.
-            window.location.hash = pendingAccountUid;
-            window.location.reload();
+            redirectToHash(pendingAccountUid);
             pendingAccountUid = null;
         }
 
@@ -2254,7 +2261,7 @@
             closeSyncMenu();
         }
 
-        function selectTheme(themeKey, labelText) {
+        function selectTheme(themeKey, _labelText) {
             changeTheme(themeKey);
             closeThemeMenu();
         }
@@ -2580,8 +2587,8 @@
         // images can be large and are per-device by design).
         // ============================================================
         const MAX_CUSTOM_BGS = 4;
-        const CUSTOM_BG_MAX_DIMENSION = 960; // longest side, px - lower cuts GPU blur cost noticeably, no visible quality loss behind blurred glass cards
-        const CUSTOM_BG_JPEG_QUALITY = 0.7;
+        const CUSTOM_BG_MAX_DIMENSION = 1920; // longest side, px - high enough for crisp desktop backgrounds
+        const CUSTOM_BG_JPEG_QUALITY = 0.85;
 
         // Built-in preset backgrounds. These ship with the app and don't
         // count toward the user's 4-upload limit.
@@ -2742,7 +2749,7 @@
             renderCustomBgGrid();
             const img = new Image();
             img.onload = () => {
-                try { applyDerivedTheme(extractDominantColor(img)); } catch (e) {}
+                try { applyDerivedTheme(extractDominantColor(img)); } catch (e) { console.warn(e); }
             };
             img.onerror = () => {
                 showToast('Could not load that background');
@@ -2760,7 +2767,7 @@
             renderCustomBgGrid();
             const img = new Image();
             img.onload = () => {
-                try { applyDerivedTheme(extractDominantColor(img)); } catch (e) {}
+                try { applyDerivedTheme(extractDominantColor(img)); } catch (e) { console.warn(e); }
             };
             img.onerror = () => {
                 showToast('Could not load that background');
@@ -2887,7 +2894,7 @@
                 setBodyBackgroundImage(bg.dataUrl);
                 const img = new Image();
                 img.onload = () => {
-                    try { applyDerivedTheme(extractDominantColor(img)); } catch (e) {}
+                    try { applyDerivedTheme(extractDominantColor(img)); } catch (e) { console.warn(e); }
                 };
                 img.onerror = () => {
                     showToast('Saved background could not be loaded');
@@ -2900,7 +2907,7 @@
                 setBodyBackgroundImage(preset.url);
                 const img = new Image();
                 img.onload = () => {
-                    try { applyDerivedTheme(extractDominantColor(img)); } catch (e) {}
+                    try { applyDerivedTheme(extractDominantColor(img)); } catch (e) { console.warn(e); }
                 };
                 img.onerror = () => {
                     showToast('Saved background could not be loaded');
@@ -3386,14 +3393,17 @@
             updateMobileNavActiveState(tab);
             renderMobileTimersSegment();
 
-            const addBtn = document.getElementById('add-btn');
-            if (addBtn) {
-                addBtn.style.display = (tab === 'pomodoro' || tab === 'flowtunes' || tab === 'journal') ? 'none' : 'flex';
-                if (tab === 'groups') {
-                    addBtn.title = "Create Group";
-                } else {
-                    addBtn.title = tab === 'stopwatch' ? "Add Stopwatch" : "Add Timer";
-                }
+            const desktopAddBtn = document.getElementById('desktop-add-btn');
+            if (desktopAddBtn) {
+                desktopAddBtn.style.display = (tab === 'pomodoro' || tab === 'flowtunes' || tab === 'journal') ? 'none' : 'flex';
+            }
+
+            const addLabel = document.getElementById('desktop-add-label');
+            if (addLabel) {
+                if (tab === 'groups') addLabel.textContent = 'New Group';
+                else if (tab === 'stopwatch') addLabel.textContent = 'New Stopwatch';
+                else if (tab === 'timer') addLabel.textContent = 'New Timer';
+                else addLabel.textContent = 'New';
             }
 
             const presetsBar = document.getElementById('presets-container');
@@ -3497,6 +3507,14 @@
             let mil = Math.floor((ms % 1000) / 10);
             const msMarkup = userSettings.showMs ? `<span class="opacity-30 text-base sm:text-lg">.${mil.toString().padStart(2, '0')}</span>` : '';
             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}${msMarkup}`;
+        }
+
+        function formatTimePlain(ms) {
+            if (isNaN(ms) || ms < 0) ms = 0;
+            let h = Math.floor(ms / 3600000);
+            let m = Math.floor((ms % 3600000) / 60000);
+            let s = Math.floor((ms % 60000) / 1000);
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         }
 
         function formatLapTime(ms) {
@@ -4376,8 +4394,7 @@
                                 return;
                             }
                             // Opened the site without a hash; redirect home.
-                            window.location.hash = homeRoomId;
-                            window.location.reload();
+                            redirectToHash(homeRoomId);
                             return;
                         }
 
@@ -4420,7 +4437,7 @@
             }
         }
 
-        function openAuthModal(mode) {
+        function openAuthModal(_mode) {
             // `mode` is kept for backward compatibility with old callers
             // (e.g. openAuthModal('login') / openAuthModal('signup')).
             document.getElementById('auth-error').innerText = '';
@@ -4479,8 +4496,7 @@
                     }
 
                     if (accountRoomId !== ROOM_ID) {
-                        window.location.hash = accountRoomId;
-                        window.location.reload();
+                        redirectToHash(accountRoomId);
                         return;
                     }
 
@@ -4540,8 +4556,7 @@
                 firebase.auth().signOut().then(() => {
                     if (wasAccountRoom && !rememberMe) {
                         // User chose not to be remembered: give them a fresh anonymous room.
-                        window.location.hash = generateRoomId();
-                        window.location.reload();
+                        redirectToHash(generateRoomId());
                     } else {
                         showToast('Logged out.');
                     }
@@ -4573,7 +4588,7 @@
                 } else {
                     myPublicStateRef.set(collectPublicState()).catch(() => {});
                 }
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         function togglePrivateMode() {
@@ -4626,7 +4641,7 @@
             if (firebase.auth) {
                 try {
                     await firebase.auth().setPersistence(checked ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
-                } catch (e) {}
+                } catch (e) { console.warn(e); }
             }
             updateRememberMeToggleUI();
             showToast(checked ? 'Stay logged in enabled' : 'You will be logged out when you close the browser');
@@ -4721,7 +4736,7 @@
                 await firebase.database().ref('users/' + authUser.uid + '/friendRequests/' + fromUid).remove();
                 await deleteNotificationByType('friend_request', fromUid);
                 renderGroupsUI();
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         async function removeFriend(uid) {
@@ -4732,7 +4747,7 @@
                 await firebase.database().ref('users/' + uid + '/friends/' + authUser.uid).remove();
                 renderGroupsUI();
                 showToast('Friend removed.');
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         // --- Groups ---
@@ -4777,7 +4792,7 @@
                 closeGroupView();
                 renderGroupsUI();
                 showToast('Left group.');
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         async function handleInviteToGroup() {
@@ -4841,7 +4856,7 @@
                 const newName = prompt('Rename group:', meta.name || 'Group');
                 if (!newName || !newName.trim()) return;
                 await renameGroup(currentGroupId, newName.trim());
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         async function renameGroup(groupId, newName) {
@@ -5334,7 +5349,7 @@
 
         
         // ---- Header profile / help panels ----
-        const FEEDBACK_EMAIL = 'your-email@example.com';
+        const FEEDBACK_EMAIL = 'Pomoharbor.work' + '@' + 'gmail.com';
 function exportRoomData() {
             const suffix = '__' + ROOM_ID;
             const data = {};
@@ -5358,6 +5373,388 @@ function exportRoomData() {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             showToast('Room data exported');
+        }
+
+        function importRoomData() {
+            const input = document.getElementById('import-room-input');
+            if (input) input.click();
+        }
+
+        function handleRoomImportFile(e) {
+            const file = e.target.files && e.target.files[0];
+            e.target.value = '';
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const payload = JSON.parse(ev.target.result);
+                    if (!payload || typeof payload.data !== 'object' || !payload.roomId) {
+                        showToast('Invalid export file');
+                        return;
+                    }
+                    if (!confirm('Importing will overwrite room data for this device. Continue?')) return;
+
+                    Object.entries(payload.data).forEach(([key, value]) => {
+                        localStorage.setItem(key, value);
+                    });
+
+                    showToast('Room data imported. Reloading...');
+                    setTimeout(() => {
+                        redirectToHash(payload.roomId);
+                    }, 600);
+                } catch (err) {
+                    showToast('Could not read export file');
+                }
+            };
+            reader.onerror = () => showToast('Could not read file');
+            reader.readAsText(file);
+        }
+
+        // ============================================================
+        // PICTURE-IN-PICTURE OVERLAY
+        // A small floating window that stays on top so users can keep an eye
+        // on their running timer/stopwatch/pomodoro while using other apps.
+        // ============================================================
+        let pipWindow = null;
+        let pipSelectedSource = 'auto';
+        let pipLastTimersSignature = '';
+
+        function getPipPomodoroContent() {
+            const target = pomodoroState.mode === 'work' ? pomodoroState.workTime : (pomodoroState.mode === 'shortBreak' ? pomodoroState.shortBreakTime : pomodoroState.longBreakTime);
+            let elapsed = pomodoroState.elapsed;
+            if (pomodoroState.running) elapsed += Date.now() - pomodoroState.startTime;
+            const remaining = Math.max(0, target - elapsed);
+            return {
+                text: formatPomoTime(remaining),
+                title: getPomodoroTask() || 'Pomodoro',
+                mode: pomodoroState.mode === 'work' ? 'Focus' : (pomodoroState.mode === 'shortBreak' ? 'Short Break' : 'Long Break')
+            };
+        }
+
+        function getPipTimerContent(timer) {
+            const ms = calculateDisplayTime(timer);
+            return {
+                text: formatTimePlain(ms),
+                title: timer.title || 'Timer',
+                mode: (timer.type || 'stopwatch') === 'stopwatch' ? 'Stopwatch' : 'Timer'
+            };
+        }
+
+        function getPipContent() {
+            // If a specific source is chosen, show it directly. Otherwise auto-pick
+            // the running pomodoro, then the first running timer, then the first timer.
+            if (pipSelectedSource === 'pomodoro') {
+                return getPipPomodoroContent();
+            }
+            if (pipSelectedSource !== 'auto') {
+                const selected = timers.find(t => String(t.id) === pipSelectedSource);
+                if (selected) return getPipTimerContent(selected);
+                pipSelectedSource = 'auto';
+            }
+            if (currentTab === 'pomodoro' || pomodoroState.running) {
+                return getPipPomodoroContent();
+            }
+            const running = timers.find(t => t.running);
+            if (running) return getPipTimerContent(running);
+            const first = timers[0];
+            if (first) return getPipTimerContent(first);
+            return { text: '00:00:00', title: 'PomoHarbor', mode: 'No active timer' };
+        }
+
+        function getPipTimersSignature() {
+            return timers.map(t => `${t.id}|${t.title}|${t.type}|${t.running}`).join(';;');
+        }
+
+        // Mobile fallback: use video Picture-in-Picture with a canvas stream.
+        // This works on Android Chrome where Document PiP is not available.
+        let pipVideo = null;
+        let pipCanvas = null;
+        let pipVideoStream = null;
+        let pipVideoRaf = null;
+
+        function drawMobilePipCanvas() {
+            if (!pipCanvas) return;
+            const ctx = pipCanvas.getContext('2d');
+            const content = getPipContent();
+            const theme = document.documentElement.getAttribute('data-theme') || 'catppuccin';
+            const accentColors = {
+                catppuccin: '#b4befe', turquoise: '#38bdf8', carnation: '#ff6b81',
+                cerise: '#ff4d6d', swarm: '#f39c12', meadow: '#2ecc71',
+                merlin: '#e0af68', blueviolet: '#89b4fa', monochrome: '#ffffff',
+                frostcontrast: '#7dd3fc', inkcontrast: '#34d399', ambercontrast: '#fbbf24'
+            };
+
+            ctx.fillStyle = '#0f0e17';
+            ctx.fillRect(0, 0, pipCanvas.width, pipCanvas.height);
+
+            ctx.fillStyle = accentColors[theme] || '#b4befe';
+            ctx.font = 'bold 52px Inter, system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(content.text, 160, 65);
+
+            ctx.fillStyle = '#cdd6f4';
+            ctx.font = '600 14px Inter, system-ui, sans-serif';
+            const title = content.title.length > 28 ? content.title.slice(0, 27) + '…' : content.title;
+            ctx.fillText(title, 160, 105);
+
+            ctx.fillStyle = 'rgba(205, 214, 244, 0.6)';
+            ctx.font = '700 10px Inter, system-ui, sans-serif';
+            ctx.fillText(content.mode, 160, 125);
+        }
+
+        function cleanupMobilePip() {
+            if (pipVideoRaf) cancelAnimationFrame(pipVideoRaf);
+            pipVideoRaf = null;
+            if (pipVideo) {
+                pipVideo.pause();
+                pipVideo.srcObject = null;
+                if (pipVideo.parentNode) pipVideo.parentNode.removeChild(pipVideo);
+            }
+            pipVideo = null;
+            pipCanvas = null;
+            pipVideoStream = null;
+        }
+
+        async function toggleMobilePictureInPicture() {
+            if (pipVideo && document.pictureInPictureElement === pipVideo) {
+                await document.exitPictureInPicture();
+                return;
+            }
+            if (!document.pictureInPictureEnabled) {
+                showToast('Picture-in-Picture is not supported on this device');
+                return;
+            }
+
+            try {
+                pipCanvas = document.createElement('canvas');
+                pipCanvas.width = 320;
+                pipCanvas.height = 160;
+
+                pipVideo = document.createElement('video');
+                pipVideo.muted = true;
+                pipVideo.playsInline = true;
+                pipVideo.style.display = 'none';
+
+                if (!pipCanvas.captureStream) {
+                    showToast('Picture-in-Picture is not supported on this device');
+                    cleanupMobilePip();
+                    return;
+                }
+                pipVideoStream = pipCanvas.captureStream(30);
+                pipVideo.srcObject = pipVideoStream;
+                document.body.appendChild(pipVideo);
+                await pipVideo.play();
+
+                function animate() {
+                    if (!pipVideo) return;
+                    drawMobilePipCanvas();
+                    pipVideoRaf = requestAnimationFrame(animate);
+                }
+                animate();
+
+                await pipVideo.requestPictureInPicture();
+
+                pipVideo.addEventListener('leavepictureinpicture', () => {
+                    cleanupMobilePip();
+                }, { once: true });
+            } catch (e) {
+                console.warn('Mobile PiP error', e);
+                showToast('Could not open Picture-in-Picture');
+                cleanupMobilePip();
+            }
+        }
+
+        async function togglePictureInPicture() {
+            // Desktop: Document Picture-in-Picture API.
+            if (window.documentPictureInPicture) {
+                if (pipWindow && !pipWindow.closed) {
+                    pipWindow.close();
+                    pipWindow = null;
+                    return;
+                }
+
+                try {
+                pipWindow = await documentPictureInPicture.requestWindow({
+                    width: 320,
+                    height: 160
+                });
+
+                const doc = pipWindow.document;
+                const theme = document.documentElement.getAttribute('data-theme') || 'catppuccin';
+                doc.documentElement.setAttribute('data-theme', theme);
+                doc.title = 'PomoHarbor PiP';
+
+                const style = doc.createElement('style');
+                style.textContent = `
+                    :root { --bg-main: #0f0e17; --text-main: #cdd6f4; --accent-primary: #b4befe; }
+                    [data-theme="catppuccin"] { --bg-main: #13131d; --text-main: #cdd6f4; --accent-primary: #b4befe; }
+                    [data-theme="turquoise"] { --accent-primary: #38bdf8; }
+                    [data-theme="carnation"] { --accent-primary: #ff6b81; }
+                    [data-theme="cerise"] { --accent-primary: #ff4d6d; }
+                    [data-theme="swarm"] { --accent-primary: #f39c12; }
+                    [data-theme="meadow"] { --accent-primary: #2ecc71; }
+                    [data-theme="merlin"] { --accent-primary: #e0af68; }
+                    [data-theme="blueviolet"] { --accent-primary: #89b4fa; }
+                    [data-theme="monochrome"] { --accent-primary: #ffffff; }
+                    [data-theme="frostcontrast"] { --accent-primary: #7dd3fc; }
+                    [data-theme="inkcontrast"] { --accent-primary: #34d399; }
+                    [data-theme="ambercontrast"] { --accent-primary: #fbbf24; }
+                    * { box-sizing: border-box; }
+                    body {
+                        margin: 0;
+                        width: 100vw;
+                        height: 100vh;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background-color: var(--bg-main);
+                        color: var(--text-main);
+                        font-family: 'Inter', system-ui, sans-serif;
+                        overflow: hidden;
+                        user-select: none;
+                    }
+                    #pip-root {
+                        width: 100%;
+                        height: 100%;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 0.75rem;
+                        text-align: center;
+                    }
+                    #pip-time {
+                        font-size: 3.25rem;
+                        font-weight: 800;
+                        line-height: 1;
+                        color: var(--accent-primary);
+                        font-variant-numeric: tabular-nums;
+                        letter-spacing: -0.02em;
+                    }
+                    #pip-title {
+                        font-size: 0.8rem;
+                        font-weight: 600;
+                        margin-top: 0.4rem;
+                        opacity: 0.9;
+                        max-width: 100%;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    #pip-mode {
+                        font-size: 0.6rem;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        letter-spacing: 0.08em;
+                        margin-top: 0.15rem;
+                        opacity: 0.6;
+                    }
+                    #pip-source {
+                        margin-top: 0.4rem;
+                        max-width: 100%;
+                        font-size: 0.65rem;
+                        font-weight: 600;
+                        color: var(--text-main);
+                        background: rgba(255,255,255,0.08);
+                        border: 1px solid rgba(255,255,255,0.12);
+                        border-radius: 0.375rem;
+                        padding: 0.2rem 0.4rem;
+                        cursor: pointer;
+                        outline: none;
+                    }
+                    #pip-source option {
+                        background: var(--bg-main);
+                        color: var(--text-main);
+                    }
+                `;
+                doc.head.appendChild(style);
+
+                doc.body.innerHTML = `
+                    <div id="pip-root">
+                        <div id="pip-time">00:00:00</div>
+                        <div id="pip-title">PomoHarbor</div>
+                        <div id="pip-mode">No active timer</div>
+                        <select id="pip-source" title="Choose PiP source">
+                            <option value="auto">Auto</option>
+                            <option value="pomodoro">Pomodoro</option>
+                        </select>
+                    </div>
+                `;
+
+                const sourceSelect = doc.getElementById('pip-source');
+
+                function buildPipSourceOptions() {
+                    const select = doc.getElementById('pip-source');
+                    if (!select) return;
+                    const sig = getPipTimersSignature();
+                    if (sig === pipLastTimersSignature && select.options.length > 2) return;
+                    pipLastTimersSignature = sig;
+
+                    const previousValue = select.value;
+                    while (select.options.length > 2) select.remove(2);
+
+                    timers.forEach(t => {
+                        const opt = doc.createElement('option');
+                        opt.value = String(t.id);
+                        const prefix = (t.type === 'stopwatch') ? '⏱️' : '⏳';
+                        opt.textContent = `${prefix} ${t.title || 'Timer'}`;
+                        if (t.running) opt.textContent += ' ●';
+                        select.appendChild(opt);
+                    });
+
+                    const stillValid = previousValue === 'auto' || previousValue === 'pomodoro' || timers.some(t => String(t.id) === previousValue);
+                    if (stillValid) {
+                        select.value = previousValue;
+                    } else {
+                        select.value = 'auto';
+                        pipSelectedSource = 'auto';
+                    }
+                }
+
+                buildPipSourceOptions();
+                if (sourceSelect) {
+                    sourceSelect.value = pipSelectedSource;
+                    sourceSelect.addEventListener('change', (e) => {
+                        pipSelectedSource = e.target.value;
+                    });
+                }
+
+                function updatePip() {
+                    if (!pipWindow || pipWindow.closed) {
+                        pipWindow = null;
+                        return;
+                    }
+                    buildPipSourceOptions();
+                    const content = getPipContent();
+                    const timeEl = doc.getElementById('pip-time');
+                    const titleEl = doc.getElementById('pip-title');
+                    const modeEl = doc.getElementById('pip-mode');
+                    if (timeEl) timeEl.textContent = content.text;
+                    if (titleEl) titleEl.textContent = content.title;
+                    if (modeEl) modeEl.textContent = content.mode;
+                    pipWindow.requestAnimationFrame(updatePip);
+                }
+                updatePip();
+
+                pipWindow.addEventListener('pagehide', () => {
+                    pipWindow = null;
+                });
+                } catch (e) {
+                    console.warn('PiP error', e);
+                    showToast('Could not open Picture-in-Picture');
+                }
+                return;
+            }
+
+            // Mobile fallback: video Picture-in-Picture via canvas stream.
+            if (document.pictureInPictureEnabled) {
+                await toggleMobilePictureInPicture();
+                return;
+            }
+
+            showToast('Picture-in-Picture is not supported in this browser');
         }
 
         // ============================================================
@@ -5429,6 +5826,7 @@ function exportRoomData() {
         function openHelpPanel(section) {
             document.getElementById('help-panel').classList.add('open');
             document.getElementById('help-panel-backdrop').classList.add('open');
+            renderFeedbackEmail();
             if (section) {
                 ['about', 'query', 'issue'].forEach(s => {
                     const body = document.getElementById('help-' + s);
@@ -5453,6 +5851,7 @@ function exportRoomData() {
             if (!el) return;
             el.classList.toggle('hidden');
             if (header) header.classList.toggle('open');
+            renderFeedbackEmail();
         }
 
         // ============================================================
@@ -5720,7 +6119,7 @@ function exportRoomData() {
                 await firebase.database().ref('users/' + authUser.uid + '/groupInvites/' + groupId).remove();
                 if (notifId) await deleteNotification(notifId);
                 showToast('Invite declined');
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         // --- Notifications system ---
@@ -5781,12 +6180,12 @@ function exportRoomData() {
                     });
                     await firebase.database().ref().update(updates);
                 }
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         async function deleteNotification(id) {
             if (!authUser || !firebase.database || !id) return;
-            try { await firebase.database().ref('users/' + authUser.uid + '/notifications/' + id).remove(); } catch (e) {}
+            try { await firebase.database().ref('users/' + authUser.uid + '/notifications/' + id).remove(); } catch (e) { console.warn(e); }
         }
 
         async function deleteNotificationByType(type, fromUid) {
@@ -5795,7 +6194,7 @@ function exportRoomData() {
             if (matches.length === 0) return;
             const updates = {};
             matches.forEach(n => { updates['users/' + authUser.uid + '/notifications/' + n.id] = null; });
-            try { await firebase.database().ref().update(updates); } catch (e) {}
+            try { await firebase.database().ref().update(updates); } catch (e) { console.warn(e); }
         }
 
         async function deleteAllNotifications() {
@@ -5803,7 +6202,7 @@ function exportRoomData() {
             if (!confirm('Clear all notifications?')) return;
             const updates = {};
             notifications.forEach(n => { updates['users/' + authUser.uid + '/notifications/' + n.id] = null; });
-            try { await firebase.database().ref().update(updates); } catch (e) {}
+            try { await firebase.database().ref().update(updates); } catch (e) { console.warn(e); }
         }
 
         function markNotificationRead(id) {
@@ -5832,7 +6231,7 @@ function exportRoomData() {
             if (!("Notification" in window) || Notification.permission !== 'granted') return;
             try {
                 new Notification(n.title || 'PomoHarbor', { body: n.body || '', tag: n.id });
-            } catch (e) {}
+            } catch (e) { console.warn(e); }
         }
 
         function formatRelativeTime(ts) {
@@ -6006,16 +6405,46 @@ function exportRoomData() {
                 const issue = document.getElementById('issue-text').value.trim();
                 const email = document.getElementById('issue-email').value.trim();
                 if (!issue) { showToast('Please describe the issue'); return; }
-                body += 'Issue: ' + issue + '%0A%0A';
-                if (email) body += 'Reporter email: ' + email + '%0A';
-                body += 'Room: ' + ROOM_ID + '%0A';
-                body += 'User: ' + (userProfile ? userProfile.username : 'anonymous') + '%0A';
-                body += 'Browser: ' + navigator.userAgent + '%0A';
+                body += 'Issue: ' + issue + '\n\n';
+                if (email) body += 'Reporter email: ' + email + '\n';
+                body += 'Room: ' + ROOM_ID + '\n';
+                body += 'User: ' + (userProfile ? userProfile.username : 'anonymous') + '\n';
+                body += 'Browser: ' + navigator.userAgent + '\n';
             } else {
-                body += 'Hi PomoHarbor team,%0A%0AI have a question about...%0A%0A';
+                body += 'Hi PomoHarbor team,\n\nI have a question about...\n\n';
             }
-            window.open('mailto:' + FEEDBACK_EMAIL + '?subject=' + encodeURIComponent(subject) + '&body=' + body, '_blank');
+            const mailto = 'mailto:' + FEEDBACK_EMAIL + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+
+            // Anchor click is more reliable than window.open for mailto URLs.
+            const a = document.createElement('a');
+            a.href = mailto;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 100);
+
+            showToast('Opening email app...');
             closeHelpPanel();
+        }
+
+        function copyFeedbackEmail() {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(FEEDBACK_EMAIL).then(() => {
+                    showToast('Email copied to clipboard');
+                }).catch(() => {
+                    showToast(FEEDBACK_EMAIL);
+                });
+            } else {
+                showToast(FEEDBACK_EMAIL);
+            }
+        }
+
+        function renderFeedbackEmail() {
+            document.querySelectorAll('.feedback-email-display').forEach(el => {
+                el.textContent = FEEDBACK_EMAIL;
+            });
         }
 
         function updateOfflineIndicator() {
@@ -6051,5 +6480,6 @@ function exportRoomData() {
             }
         });
     </script>
-</body>
+    <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a23ee88b7e715cb8',t:'MTc4NTUyNTA4MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
