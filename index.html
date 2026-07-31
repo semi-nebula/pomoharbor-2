@@ -886,6 +886,77 @@
             border-top: 1px solid var(--border-color);
         }
 
+        /* Mobile PiP overlay fallback: a small floating card that works in
+           every browser (including iOS Safari and Android browsers that don't
+           support video PiP). It floats above the bottom tab bar and can be
+           dragged out of the way. */
+        #mobile-pip-overlay {
+            position: fixed;
+            right: 0.75rem;
+            bottom: calc(5.5rem + env(safe-area-inset-bottom));
+            width: 11.5rem;
+            z-index: 130;
+            border-radius: 1rem;
+            padding: 0.65rem 0.75rem;
+            background-color: color-mix(in srgb, var(--bg-main) 88%, white 12%);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+        #mobile-pip-overlay:active { cursor: grabbing; }
+        #mobile-pip-overlay .pip-overlay-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.25rem;
+        }
+        #mobile-pip-overlay .pip-overlay-title {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            max-width: 7rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #mobile-pip-overlay .pip-overlay-close {
+            width: 1.25rem;
+            height: 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9999px;
+            background: rgba(255,255,255,0.08);
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            line-height: 1;
+            cursor: pointer;
+            border: none;
+        }
+        #mobile-pip-overlay .pip-overlay-time {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.35rem;
+            font-weight: 800;
+            color: var(--accent-primary);
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+        }
+        #mobile-pip-overlay .pip-overlay-mode {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-top: 0.1rem;
+        }
+        @media (min-width: 1025px) {
+            #mobile-pip-overlay { display: none !important; }
+        }
+
     </style>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#0f0e17">
@@ -1388,7 +1459,7 @@
             </div>
             <button onclick="exportRoomData()" class="panel-menu-item">📥 Export room data</button>
             <button onclick="importRoomData()" class="panel-menu-item">📤 Import room data</button>
-            <button id="install-app-btn" onclick="promptInstallPWA(); closeProfilePanel();" class="panel-menu-item hidden">📲 Install app</button>
+            <button id="install-app-btn" onclick="promptInstallPWA(); closeProfilePanel();" class="panel-menu-item">📲 Install app</button>
             <button onclick="openModal('changelog-modal'); renderChangelog(); closeProfilePanel();" class="panel-menu-item">🆕 What's New</button>
             <button id="privacy-toggle-btn" onclick="togglePrivateMode()" class="w-full text-left panel-menu-item" title="Private Mode">
                     <span id="privacy-icon">🌐</span>
@@ -3850,6 +3921,8 @@
                     }
                 });
             }
+            // Keep the mobile overlay in sync on every tick.
+            updateMobilePipOverlay();
         }
 
         function calculateDisplayTime(timer) {
@@ -5419,6 +5492,7 @@ function exportRoomData() {
         let pipWindow = null;
         let pipSelectedSource = 'auto';
         let pipLastTimersSignature = '';
+        let mobilePipOverlay = null;
 
         function getPipPomodoroContent() {
             const target = pomodoroState.mode === 'work' ? pomodoroState.workTime : (pomodoroState.mode === 'shortBreak' ? pomodoroState.shortBreakTime : pomodoroState.longBreakTime);
@@ -5517,6 +5591,98 @@ function exportRoomData() {
             pipVideoStream = null;
         }
 
+        // Mobile PiP overlay fallback. Works in every browser because it is
+        // just a fixed-position div. It is draggable and updates in real time
+        // via updateDisplays(). This is the fallback when native video PiP is
+        // unavailable (most iOS/Android browsers).
+        function createMobilePipOverlay() {
+            if (mobilePipOverlay) return;
+            const el = document.createElement('div');
+            el.id = 'mobile-pip-overlay';
+            el.innerHTML = `
+                <div class="pip-overlay-header">
+                    <div class="pip-overlay-title">PomoHarbor</div>
+                    <button class="pip-overlay-close" onclick="destroyMobilePipOverlay(); event.stopPropagation();" aria-label="Close">✕</button>
+                </div>
+                <div class="pip-overlay-time">00:00:00</div>
+                <div class="pip-overlay-mode">No active timer</div>
+            `;
+            document.body.appendChild(el);
+            mobilePipOverlay = el;
+            setupMobilePipOverlayDrag(el);
+            updateMobilePipOverlay();
+            showToast('Floating timer shown');
+        }
+
+        function updateMobilePipOverlay() {
+            if (!mobilePipOverlay) return;
+            const content = getPipContent();
+            const timeEl = mobilePipOverlay.querySelector('.pip-overlay-time');
+            const titleEl = mobilePipOverlay.querySelector('.pip-overlay-title');
+            const modeEl = mobilePipOverlay.querySelector('.pip-overlay-mode');
+            if (timeEl) timeEl.textContent = content.text;
+            if (titleEl) titleEl.textContent = content.title;
+            if (modeEl) modeEl.textContent = content.mode;
+        }
+
+        function destroyMobilePipOverlay() {
+            if (mobilePipOverlay) {
+                mobilePipOverlay.remove();
+                mobilePipOverlay = null;
+            }
+        }
+
+        function toggleMobilePipOverlay() {
+            if (mobilePipOverlay) {
+                destroyMobilePipOverlay();
+                return;
+            }
+            createMobilePipOverlay();
+        }
+
+        function setupMobilePipOverlayDrag(el) {
+            let dragging = false;
+            let startX, startY, startLeft, startTop;
+
+            function onStart(e) {
+                if (e.target.closest('.pip-overlay-close')) return;
+                dragging = true;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                startX = clientX;
+                startY = clientY;
+                const rect = el.getBoundingClientRect();
+                startLeft = rect.left;
+                startTop = rect.top;
+                el.style.cursor = 'grabbing';
+            }
+
+            function onMove(e) {
+                if (!dragging) return;
+                e.preventDefault();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                const dx = clientX - startX;
+                const dy = clientY - startY;
+                el.style.left = Math.max(4, Math.min(window.innerWidth - el.offsetWidth - 4, startLeft + dx)) + 'px';
+                el.style.top = Math.max(4, Math.min(window.innerHeight - el.offsetHeight - 4, startTop + dy)) + 'px';
+                el.style.right = 'auto';
+                el.style.bottom = 'auto';
+            }
+
+            function onEnd() {
+                dragging = false;
+                el.style.cursor = 'grab';
+            }
+
+            el.addEventListener('mousedown', onStart);
+            el.addEventListener('touchstart', onStart, { passive: false });
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('touchmove', onMove, { passive: false });
+            document.addEventListener('mouseup', onEnd);
+            document.addEventListener('touchend', onEnd);
+        }
+
         async function toggleMobilePictureInPicture() {
             if (pipVideo && document.pictureInPictureElement === pipVideo) {
                 await document.exitPictureInPicture();
@@ -5567,6 +5733,7 @@ function exportRoomData() {
         }
 
         async function togglePictureInPicture() {
+            try {
             // Desktop: Document Picture-in-Picture API.
             if (window.documentPictureInPicture) {
                 if (pipWindow && !pipWindow.closed) {
@@ -5748,13 +5915,23 @@ function exportRoomData() {
                 return;
             }
 
-            // Mobile fallback: video Picture-in-Picture via canvas stream.
-            if (document.pictureInPictureEnabled) {
-                await toggleMobilePictureInPicture();
-                return;
+            // Mobile fallback: try native video PiP first, then overlay.
+            const canVideoPip = document.pictureInPictureEnabled && document.createElement('canvas').captureStream;
+            if (canVideoPip) {
+                try {
+                    await toggleMobilePictureInPicture();
+                    return;
+                } catch (e) {
+                    console.warn('Native mobile PiP failed, using overlay fallback', e);
+                }
             }
 
-            showToast('Picture-in-Picture is not supported in this browser');
+            // Last-resort fallback: floating overlay that works in every browser.
+            toggleMobilePipOverlay();
+            } catch (err) {
+                console.warn('togglePictureInPicture error', err);
+                showToast('Could not open Picture-in-Picture: ' + (err.message || 'unknown error'));
+            }
         }
 
         // ============================================================
@@ -5772,8 +5949,6 @@ function exportRoomData() {
 
         window.addEventListener('appinstalled', () => {
             deferredInstallPrompt = null;
-            const btn = document.getElementById('install-app-btn');
-            if (btn) btn.classList.add('hidden');
             showToast('PomoHarbor installed!');
         });
 
@@ -5803,12 +5978,8 @@ function exportRoomData() {
         }
 
         function updateInstallButtonVisibility() {
-            const btn = document.getElementById('install-app-btn');
-            if (!btn) return;
-            // Hide when already running as an installed app.
-            if (window.matchMedia('(display-mode: standalone)').matches) {
-                btn.classList.add('hidden');
-            }
+            // The Install app button is kept visible on every device so users
+            // can re-install or add the app to another browser at any time.
         }
         updateInstallButtonVisibility();
 
@@ -6481,5 +6652,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a23f46a94e09fbde',t:'MTc4NTUyODkzNQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
