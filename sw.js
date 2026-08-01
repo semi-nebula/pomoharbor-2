@@ -1,11 +1,15 @@
-const CACHE_NAME = 'pomoharbor-v11';
+const CACHE_NAME = 'pomoharbor-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/todo.html',
   '/manifest.json',
   '/icons/pomo-192.png',
-  '/icons/pomo-512.png'
+  '/icons/pomo-512.png',
+  '/icons/pomo-maskable-192.png',
+  '/icons/pomo-maskable-512.png',
+  '/icons/apple-touch-icon.png',
+  '/icons/favicon-32x32.png'
 ];
 
 self.addEventListener('install', (event) => {
