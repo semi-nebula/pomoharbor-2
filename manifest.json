@@ -7,9 +7,12 @@
   "display": "standalone",
   "background_color": "#0f0e17",
   "theme_color": "#0f0e17",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "scope": "./",
-  "categories": ["productivity", "utilities"],
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
   "icons": [
     {
       "src": "./icons/pomo-192.png",
@@ -65,14 +68,24 @@
       "short_name": "Timers",
       "description": "Open stopwatches and timers",
       "url": "./#timers",
-      "icons": [{ "src": "./icons/pomo-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "./icons/pomo-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Pomodoro",
       "short_name": "Pomodoro",
       "description": "Start a focus session",
       "url": "./#pomodoro",
-      "icons": [{ "src": "./icons/pomo-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "./icons/pomo-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
