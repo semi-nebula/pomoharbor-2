@@ -971,9 +971,9 @@
             background: var(--bg-main);
             color: var(--text-main);
         }
-        @media (min-width: 1025px) {
-            #mobile-pip-overlay { display: none !important; }
-        }
+        /* The overlay is only created on mobile/tablet by JS, so no need
+           to hide it with a media query. This keeps it available in
+           landscape orientations where the viewport may exceed 1024px. */
 
     </style>
     <link rel="manifest" href="/manifest.json">
@@ -5642,7 +5642,9 @@ function exportRoomData() {
         }
 
         function isMobileOrTablet() {
-            return window.innerWidth <= 1024;
+            // Treat narrow viewports as mobile. Also treat touch-capable devices
+            // without desktop Document PiP (e.g. iPad in landscape) as tablets.
+            return window.innerWidth <= 1024 || (navigator.maxTouchPoints > 0 && !window.documentPictureInPicture);
         }
 
         // Mobile PiP overlay fallback. Works in every browser because it is
@@ -5795,47 +5797,50 @@ function exportRoomData() {
                 return;
             }
             if (!document.pictureInPictureEnabled) {
-                showToast('Picture-in-Picture is not supported on this device');
-                return;
+                throw new Error('PiP not enabled');
             }
 
-            try {
-                pipCanvas = document.createElement('canvas');
-                pipCanvas.width = 320;
-                pipCanvas.height = 160;
+            pipCanvas = document.createElement('canvas');
+            pipCanvas.width = 320;
+            pipCanvas.height = 160;
 
-                pipVideo = document.createElement('video');
-                pipVideo.muted = true;
-                pipVideo.playsInline = true;
-                pipVideo.style.display = 'none';
+            pipVideo = document.createElement('video');
+            pipVideo.muted = true;
+            pipVideo.playsInline = true;
+            pipVideo.autoplay = true;
+            // Keep the video technically visible (1x1 pixel, transparent) so
+            // Chrome mobile allows it to enter Picture-in-Picture. display:none
+            // or zero-size elements are often rejected.
+            pipVideo.style.width = '1px';
+            pipVideo.style.height = '1px';
+            pipVideo.style.opacity = '0';
+            pipVideo.style.position = 'absolute';
+            pipVideo.style.pointerEvents = 'none';
 
-                if (!pipCanvas.captureStream) {
-                    showToast('Picture-in-Picture is not supported on this device');
-                    cleanupMobilePip();
-                    return;
-                }
-                pipVideoStream = pipCanvas.captureStream(30);
-                pipVideo.srcObject = pipVideoStream;
-                document.body.appendChild(pipVideo);
-                await pipVideo.play();
+            if (!pipCanvas.captureStream) {
+                throw new Error('captureStream not supported');
+            }
 
-                function animate() {
-                    if (!pipVideo) return;
-                    drawMobilePipCanvas();
-                    pipVideoRaf = requestAnimationFrame(animate);
-                }
-                animate();
+            // Draw at least one frame before capturing so the video has content.
+            drawMobilePipCanvas();
+            pipVideoStream = pipCanvas.captureStream(30);
+            pipVideo.srcObject = pipVideoStream;
+            document.body.appendChild(pipVideo);
 
-                await pipVideo.requestPictureInPicture();
+            await pipVideo.play();
 
-                pipVideo.addEventListener('leavepictureinpicture', () => {
-                    cleanupMobilePip();
-                }, { once: true });
-            } catch (e) {
-                console.warn('Mobile PiP error', e);
-                showToast('Could not open Picture-in-Picture');
+            function animate() {
+                if (!pipVideo) return;
+                drawMobilePipCanvas();
+                pipVideoRaf = requestAnimationFrame(animate);
+            }
+            animate();
+
+            await pipVideo.requestPictureInPicture();
+
+            pipVideo.addEventListener('leavepictureinpicture', () => {
                 cleanupMobilePip();
-            }
+            }, { once: true });
         }
 
         async function togglePictureInPicture() {
@@ -6027,12 +6032,14 @@ function exportRoomData() {
                 if (isMobileOrTablet()) {
                     const ua = navigator.userAgent || '';
                     const isAndroidChrome = /Android/.test(ua) && /Chrome/.test(ua) && !/Edg|OPR|SamsungBrowser/.test(ua);
+                    console.log('[PiP] mobile/tablet detected, Android Chrome:', isAndroidChrome, 'PiP enabled:', document.pictureInPictureEnabled);
                     if (isAndroidChrome) {
                         try {
-                            await withTimeout(toggleMobilePictureInPicture(), 2500);
+                            await withTimeout(toggleMobilePictureInPicture(), 3000);
+                            console.log('[PiP] native mobile PiP opened');
                             return;
                         } catch (e) {
-                            console.warn('Native mobile PiP failed/timed out, using overlay', e);
+                            console.warn('[PiP] native mobile PiP failed/timed out, using overlay', e);
                         }
                     }
                     toggleMobilePipOverlay();
@@ -6874,5 +6881,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a246fa492e952982',t:'MTc4NTYwOTY5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2475601fa467c75',t:'MTc4NTYxMzQ1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
