@@ -7,7 +7,6 @@
   "display": "standalone",
   "background_color": "#0f0e17",
   "theme_color": "#0f0e17",
-  "orientation": "any",
   "scope": "./",
   "categories": [
     "productivity",
