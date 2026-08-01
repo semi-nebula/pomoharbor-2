@@ -960,9 +960,23 @@
     </style>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#0f0e17">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="./icons/pomo-192.png">
+    <meta name="apple-mobile-web-app-title" content="PomoHarbor">
+    <meta name="application-name" content="PomoHarbor">
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+    <script>
+        // Capture the install prompt as early as possible so it is available
+        // even if the main script at the bottom of the page hasn't run yet.
+        window.__pomoDeferredPrompt = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            window.__pomoDeferredPrompt = e;
+        });
+    </script>
 </head>
 <body class="flex flex-col relative antialiased selection:bg-indigo-500 selection:text-white" onclick="unlockAudio(); closeThemeDropdownOutside(event);">
 
@@ -1880,8 +1894,18 @@
 
         // App version + changelog. Bump APP_VERSION whenever you ship a
         // notable update; the app can then highlight new entries.
-        const APP_VERSION = '1.1.0';
+        const APP_VERSION = '1.2.0';
         const CHANGELOG = [
+            {
+                version: '1.2.0',
+                date: '2026-08-01',
+                items: [
+                    'Fixed PWA install on Android: manifest now includes maskable icons and mobile screenshots so Chrome offers the native "Install app" prompt.',
+                    'Added a mobile-only install banner that appears when the browser is ready to install the app.',
+                    'Added favicon, 180x180 Apple touch icon, and missing mobile-web-app meta tags.',
+                    'Improved install fallback messages for iOS Safari, Samsung Internet, and other browsers.'
+                ]
+            },
             {
                 version: '1.1.0',
                 date: '2026-07-30',
@@ -5937,43 +5961,128 @@ function exportRoomData() {
         // ============================================================
         // PWA INSTALL PROMPT
         // ============================================================
-        let deferredInstallPrompt = null;
+        let deferredInstallPrompt = window.__pomoDeferredPrompt || null;
+        let installBannerShown = false;
+
+        function getPlatform() {
+            const ua = navigator.userAgent || '';
+            const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+            const isIPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints && navigator.maxTouchPoints > 1;
+            const isAndroid = /Android/.test(ua);
+            const isChrome = /Chrome/.test(ua) && !/Edg|OPR|SamsungBrowser/.test(ua);
+            const isSafari = /Safari/.test(ua) && !/Chrome/.test(ua);
+            const isSamsung = /SamsungBrowser/.test(ua);
+            return { isIOS, isIPadOS, isAndroid, isChrome, isSafari, isSamsung };
+        }
+
+        function isInStandaloneMode() {
+            return window.matchMedia('(display-mode: standalone)').matches ||
+                   window.matchMedia('(display-mode: fullscreen)').matches ||
+                   window.matchMedia('(display-mode: minimal-ui)').matches ||
+                   navigator.standalone === true;
+        }
 
         window.addEventListener('beforeinstallprompt', (e) => {
             // Prevent the mini-info bar from appearing on mobile.
             e.preventDefault();
             deferredInstallPrompt = e;
+            window.__pomoDeferredPrompt = e;
             const btn = document.getElementById('install-app-btn');
             if (btn) btn.classList.remove('hidden');
+            // Show a friendly banner on mobile when the browser says the app
+            // can be installed, so users don't have to hunt through menus.
+            // Only show the auto-banner on phones/tablets where the install
+            // option is hardest to find. Desktop Chrome already puts an icon
+            // in the address bar.
+            if (!installBannerShown && !isInStandaloneMode() && window.innerWidth <= 1024) {
+                installBannerShown = true;
+                setTimeout(showInstallBanner, 1200);
+            }
         });
 
         window.addEventListener('appinstalled', () => {
             deferredInstallPrompt = null;
+            window.__pomoDeferredPrompt = null;
+            hideInstallBanner();
             showToast('PomoHarbor installed!');
         });
 
+        function showInstallBanner() {
+            if (document.getElementById('pwa-install-banner')) return;
+            const p = getPlatform();
+            const text = p.isIOS || p.isIPadOS
+                ? 'Install PomoHarbor on your home screen for quick access.'
+                : 'Install PomoHarbor as an app for the best experience.';
+
+            const banner = document.createElement('div');
+            banner.id = 'pwa-install-banner';
+            banner.className = 'fixed left-3 right-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[150] custom-card border rounded-2xl p-3 shadow-2xl flex items-center gap-3';
+            banner.style.backgroundColor = 'color-mix(in srgb, var(--bg-main) 96%, white 4%)';
+            banner.innerHTML = `
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style="background:var(--accent-glow)">
+                    <img src="./icons/pomo-192.png" alt="" class="w-7 h-7 rounded-lg">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-xs font-bold truncate">Install PomoHarbor</div>
+                    <div class="text-[10px] text-muted-custom leading-tight">${text}</div>
+                </div>
+                <button id="pwa-banner-install" class="px-3 py-1.5 custom-btn text-[11px] rounded-xl font-bold whitespace-nowrap">Install</button>
+                <button id="pwa-banner-close" class="w-7 h-7 flex items-center justify-center rounded-lg text-muted-custom hover:text-white text-xs">✕</button>
+            `;
+            document.body.appendChild(banner);
+
+            banner.querySelector('#pwa-banner-install').addEventListener('click', () => {
+                promptInstallPWA();
+            });
+            banner.querySelector('#pwa-banner-close').addEventListener('click', () => {
+                hideInstallBanner();
+            });
+        }
+
+        function hideInstallBanner() {
+            const banner = document.getElementById('pwa-install-banner');
+            if (banner) banner.remove();
+        }
+
         function promptInstallPWA() {
-            if (deferredInstallPrompt) {
-                deferredInstallPrompt.prompt();
-                deferredInstallPrompt.userChoice.then((choiceResult) => {
+            // Prefer the early-captured prompt, then the local variable.
+            const promptEvent = window.__pomoDeferredPrompt || deferredInstallPrompt;
+
+            if (promptEvent && typeof promptEvent.prompt === 'function') {
+                promptEvent.prompt();
+                promptEvent.userChoice.then((choiceResult) => {
                     if (choiceResult.outcome === 'accepted') {
                         showToast('Installing PomoHarbor...');
                     } else {
                         showToast('Install cancelled');
                     }
                     deferredInstallPrompt = null;
+                    window.__pomoDeferredPrompt = null;
+                }).catch(() => {
+                    deferredInstallPrompt = null;
+                    window.__pomoDeferredPrompt = null;
+                    showInstallInstructions();
                 });
                 return;
             }
 
-            // No deferred prompt available (iOS Safari, already installed, or not HTTPS).
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-            if (isIOS) {
-                showToast('Tap the Share button, then "Add to Home Screen"');
-            } else if (window.matchMedia('(display-mode: standalone)').matches) {
+            showInstallInstructions();
+        }
+
+        function showInstallInstructions() {
+            const p = getPlatform();
+            if (isInStandaloneMode()) {
                 showToast('PomoHarbor is already installed');
+                return;
+            }
+            if (p.isIOS || p.isIPadOS) {
+                showToast('Tap Share in Safari, then "Add to Home Screen"');
+            } else if (p.isSamsung) {
+                showToast('Tap the menu ⋮ → "Add page to" → Home screen');
+            } else if (p.isAndroid) {
+                showToast('Tap the browser menu ⋮ → "Add to Home screen" / "Install app"');
             } else {
-                showToast('Use your browser menu → Add to Home screen / Install app');
+                showToast('Use your browser menu → Install PomoHarbor / Add to Home screen');
             }
         }
 
@@ -6652,5 +6761,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a23f46a94e09fbde',t:'MTc4NTUyODkzNQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2466591c90a162a',t:'MTc4NTYwMzYwMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
