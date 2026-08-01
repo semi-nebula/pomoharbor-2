@@ -971,6 +971,24 @@
             background: var(--bg-main);
             color: var(--text-main);
         }
+        #mobile-pip-overlay .pip-overlay-popout {
+            width: 100%;
+            margin-top: 0.4rem;
+            padding: 0.35rem 0;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+            background: var(--accent-glow);
+            color: var(--accent-primary);
+            cursor: pointer;
+        }
+        #mobile-pip-overlay .pip-overlay-popout:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
         /* The overlay is only created on mobile/tablet by JS, so no need
            to hide it with a media query. This keeps it available in
            landscape orientations where the viewport may exceed 1024px. */
@@ -5650,10 +5668,17 @@ function exportRoomData() {
         // Mobile PiP overlay fallback. Works in every browser because it is
         // just a fixed-position div. It is draggable and updates in real time
         // via updateDisplays(). This is the primary mobile/tablet PiP experience.
+        function canPopOutNativePiP() {
+            const ua = navigator.userAgent || '';
+            const isAndroidChrome = /Android/.test(ua) && /Chrome/.test(ua) && !/Edg|OPR|SamsungBrowser/.test(ua);
+            return isAndroidChrome && document.pictureInPictureEnabled && document.createElement('canvas').captureStream;
+        }
+
         function createMobilePipOverlay() {
             if (mobilePipOverlay) return;
             const el = document.createElement('div');
             el.id = 'mobile-pip-overlay';
+            const showPopout = canPopOutNativePiP();
             el.innerHTML = `
                 <div class="pip-overlay-header">
                     <div class="pip-overlay-title">PomoHarbor</div>
@@ -5662,6 +5687,7 @@ function exportRoomData() {
                 <div class="pip-overlay-time">00:00:00</div>
                 <div class="pip-overlay-mode">No active timer</div>
                 <select class="pip-overlay-source" title="Choose timer"></select>
+                ${showPopout ? `<button class="pip-overlay-popout" title="Float outside the browser">⛶ Pop out</button>` : ''}
             `;
             document.body.appendChild(el);
             mobilePipOverlay = el;
@@ -5675,6 +5701,23 @@ function exportRoomData() {
                 pipSelectedSource = e.target.value;
                 updateMobilePipOverlay();
             });
+            const popoutBtn = el.querySelector('.pip-overlay-popout');
+            if (popoutBtn) {
+                popoutBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    popoutBtn.disabled = true;
+                    popoutBtn.textContent = 'Opening...';
+                    try {
+                        await withTimeout(toggleMobilePictureInPicture(), 3000);
+                        destroyMobilePipOverlay();
+                    } catch (err) {
+                        console.warn('[PiP] pop out failed', err);
+                        popoutBtn.disabled = false;
+                        popoutBtn.textContent = '⛶ Pop out';
+                        showToast('Pop-out failed. Using in-app overlay.');
+                    }
+                });
+            }
             buildMobilePipSourceOptions();
             updateMobilePipOverlay();
             showToast('Floating timer shown');
@@ -6026,22 +6069,10 @@ function exportRoomData() {
                     return;
                 }
 
-                // Mobile/tablet: try native video PiP first on Android Chrome
-                // so the timer can float outside the browser. If it fails or
-                // hangs, fall back to the draggable in-app overlay.
+                // Mobile/tablet: always open the draggable overlay first.
+                // The overlay has a timer selector and, on Android Chrome, a
+                // "Pop out" button that tries to float the timer outside the app.
                 if (isMobileOrTablet()) {
-                    const ua = navigator.userAgent || '';
-                    const isAndroidChrome = /Android/.test(ua) && /Chrome/.test(ua) && !/Edg|OPR|SamsungBrowser/.test(ua);
-                    console.log('[PiP] mobile/tablet detected, Android Chrome:', isAndroidChrome, 'PiP enabled:', document.pictureInPictureEnabled);
-                    if (isAndroidChrome) {
-                        try {
-                            await withTimeout(toggleMobilePictureInPicture(), 3000);
-                            console.log('[PiP] native mobile PiP opened');
-                            return;
-                        } catch (e) {
-                            console.warn('[PiP] native mobile PiP failed/timed out, using overlay', e);
-                        }
-                    }
                     toggleMobilePipOverlay();
                     return;
                 }
@@ -6881,5 +6912,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2475601fa467c75',t:'MTc4NTYxMzQ1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2477eba3ec2ac91',t:'MTc4NTYxNTExOA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
