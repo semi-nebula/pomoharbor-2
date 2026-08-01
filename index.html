@@ -1514,6 +1514,14 @@
                     <span class="toggle-slider"></span>
                 </label>
             </div>
+            <div id="orientation-lock-btn" onclick="toggleOrientationLock()" class="panel-menu-item cursor-pointer" title="Lock screen to portrait/vertical">
+                <span>📱</span>
+                <span class="flex-1 text-xs font-semibold">Lock screen vertical</span>
+                <label class="toggle-switch" onclick="event.stopPropagation()">
+                    <input id="panel-orientation-lock" type="checkbox" onchange="toggleOrientationLockFromCheckbox(this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
             <button onclick="exportRoomData()" class="panel-menu-item">📥 Export room data</button>
             <button onclick="importRoomData()" class="panel-menu-item">📤 Import room data</button>
             <button id="install-app-btn" onclick="promptInstallPWA(); closeProfilePanel();" class="panel-menu-item">📲 Install app</button>
@@ -4800,6 +4808,56 @@
             btn.classList.remove('hidden');
         }
 
+        // --- Screen orientation lock ---
+
+        function toggleOrientationLock() {
+            const input = document.getElementById('panel-orientation-lock');
+            const checked = input ? !input.checked : false;
+            if (input) input.checked = checked;
+            applyOrientationLock(checked);
+        }
+
+        function toggleOrientationLockFromCheckbox(checked) {
+            applyOrientationLock(!!checked);
+        }
+
+        function applyOrientationLock(locked) {
+            localStorage.setItem('pomoharbor_orientation_lock', locked ? 'true' : 'false');
+            if (!screen.orientation || !screen.orientation.lock) {
+                updateOrientationLockUI();
+                showToast('Use your phone\'s rotation lock — this browser cannot lock orientation');
+                return;
+            }
+            if (locked) {
+                screen.orientation.lock('portrait').then(() => {
+                    updateOrientationLockUI();
+                    showToast('Screen locked to vertical');
+                }).catch((err) => {
+                    console.warn('Orientation lock failed', err);
+                    updateOrientationLockUI();
+                    showToast('Could not lock orientation');
+                });
+            } else {
+                screen.orientation.unlock();
+                updateOrientationLockUI();
+                showToast('Screen rotation unlocked');
+            }
+        }
+
+        function updateOrientationLockUI() {
+            const input = document.getElementById('panel-orientation-lock');
+            const locked = localStorage.getItem('pomoharbor_orientation_lock') === 'true';
+            if (input) input.checked = locked;
+        }
+
+        function initOrientationLock() {
+            updateOrientationLockUI();
+            const locked = localStorage.getItem('pomoharbor_orientation_lock') === 'true';
+            if (locked && screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock('portrait').catch(() => {});
+            }
+        }
+
         // --- Friends ---
 
         async function handleAddFriend() {
@@ -6800,6 +6858,7 @@ function exportRoomData() {
             }
             updatePrivacyToggleUI();
             updateRememberMeToggleUI();
+            updateOrientationLockUI();
         }
 
         function renderChangelog() {
@@ -6881,6 +6940,7 @@ function exportRoomData() {
         updateMobileNavActiveState(currentTab);
         renderMobileTimersSegment();
         updateOfflineIndicator();
+        initOrientationLock();
         initAuth().catch(() => {});
 
 
@@ -6912,5 +6972,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2477eba3ec2ac91',t:'MTc4NTYxNTExOA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a247b6fced3e7e55',t:'MTc4NTYxNzQyMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
