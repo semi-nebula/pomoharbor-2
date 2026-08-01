@@ -953,6 +953,24 @@
             color: var(--text-muted);
             margin-top: 0.1rem;
         }
+        #mobile-pip-overlay .pip-overlay-source {
+            width: 100%;
+            margin-top: 0.4rem;
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--text-main);
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 0.5rem;
+            padding: 0.25rem 0.35rem;
+            outline: none;
+            cursor: pointer;
+            max-width: 100%;
+        }
+        #mobile-pip-overlay .pip-overlay-source option {
+            background: var(--bg-main);
+            color: var(--text-main);
+        }
         @media (min-width: 1025px) {
             #mobile-pip-overlay { display: none !important; }
         }
@@ -5523,6 +5541,7 @@ function exportRoomData() {
         let pipWindow = null;
         let pipSelectedSource = 'auto';
         let pipLastTimersSignature = '';
+        let mobilePipTimersSignature = '';
         let mobilePipOverlay = null;
 
         function getPipPomodoroContent() {
@@ -5640,6 +5659,7 @@ function exportRoomData() {
                 </div>
                 <div class="pip-overlay-time">00:00:00</div>
                 <div class="pip-overlay-mode">No active timer</div>
+                <select class="pip-overlay-source" title="Choose timer"></select>
             `;
             document.body.appendChild(el);
             mobilePipOverlay = el;
@@ -5648,19 +5668,67 @@ function exportRoomData() {
                 e.stopPropagation();
                 destroyMobilePipOverlay();
             });
+            const sourceSelect = el.querySelector('.pip-overlay-source');
+            sourceSelect.addEventListener('change', (e) => {
+                pipSelectedSource = e.target.value;
+                updateMobilePipOverlay();
+            });
+            buildMobilePipSourceOptions();
             updateMobilePipOverlay();
             showToast('Floating timer shown');
         }
 
+        function buildMobilePipSourceOptions() {
+            if (!mobilePipOverlay) return;
+            const select = mobilePipOverlay.querySelector('.pip-overlay-source');
+            if (!select) return;
+            const sig = getPipTimersSignature();
+            if (sig === mobilePipTimersSignature && select.options.length > 2) return;
+            mobilePipTimersSignature = sig;
+
+            const previousValue = select.value;
+            while (select.options.length > 0) select.remove(0);
+
+            const autoOpt = document.createElement('option');
+            autoOpt.value = 'auto';
+            autoOpt.textContent = 'Auto';
+            select.appendChild(autoOpt);
+
+            const pomoOpt = document.createElement('option');
+            pomoOpt.value = 'pomodoro';
+            pomoOpt.textContent = '🍅 Pomodoro';
+            select.appendChild(pomoOpt);
+
+            timers.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = String(t.id);
+                const prefix = (t.type === 'stopwatch') ? '⏱️' : '⏳';
+                opt.textContent = `${prefix} ${t.title || 'Timer'}`;
+                if (t.running) opt.textContent += ' ●';
+                select.appendChild(opt);
+            });
+
+            const stillValid = previousValue === 'auto' || previousValue === 'pomodoro' || timers.some(t => String(t.id) === previousValue);
+            if (stillValid) {
+                select.value = previousValue;
+            } else {
+                select.value = 'auto';
+                pipSelectedSource = 'auto';
+            }
+        }
+
         function updateMobilePipOverlay() {
             if (!mobilePipOverlay) return;
+            buildMobilePipSourceOptions();
             const content = getPipContent();
             const timeEl = mobilePipOverlay.querySelector('.pip-overlay-time');
             const titleEl = mobilePipOverlay.querySelector('.pip-overlay-title');
             const modeEl = mobilePipOverlay.querySelector('.pip-overlay-mode');
+            const sourceSelect = mobilePipOverlay.querySelector('.pip-overlay-source');
             if (timeEl) timeEl.textContent = content.text;
             if (titleEl) titleEl.textContent = content.title;
             if (modeEl) modeEl.textContent = content.mode;
+            if (sourceSelect) sourceSelect.value = pipSelectedSource;
         }
 
         function destroyMobilePipOverlay() {
@@ -5953,14 +6021,34 @@ function exportRoomData() {
                     return;
                 }
 
-                // Mobile/tablet: use the reliable overlay fallback.
-                // Native video PiP on mobile is too inconsistent across browsers,
-                // so we go straight to the draggable floating overlay.
-                toggleMobilePipOverlay();
+                // Mobile/tablet: try native video PiP first on Android Chrome
+                // so the timer can float outside the browser. If it fails or
+                // hangs, fall back to the draggable in-app overlay.
+                if (isMobileOrTablet()) {
+                    const ua = navigator.userAgent || '';
+                    const isAndroidChrome = /Android/.test(ua) && /Chrome/.test(ua) && !/Edg|OPR|SamsungBrowser/.test(ua);
+                    if (isAndroidChrome) {
+                        try {
+                            await withTimeout(toggleMobilePictureInPicture(), 2500);
+                            return;
+                        } catch (e) {
+                            console.warn('Native mobile PiP failed/timed out, using overlay', e);
+                        }
+                    }
+                    toggleMobilePipOverlay();
+                    return;
+                }
             } catch (err) {
                 console.warn('togglePictureInPicture error', err);
                 showToast('Could not open timer overlay');
             }
+        }
+
+        function withTimeout(promise, ms) {
+            return new Promise((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error('timeout')), ms);
+                promise.then((val) => { clearTimeout(timer); resolve(val); }).catch((err) => { clearTimeout(timer); reject(err); });
+            });
         }
 
         // ============================================================
@@ -6786,5 +6874,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a246ddc7fe59ac91',t:'MTc4NTYwODUyNg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a246fa492e952982',t:'MTc4NTYwOTY5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
