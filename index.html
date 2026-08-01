@@ -1401,7 +1401,7 @@
                     <button id="tab-timer" onclick="switchTab('timer')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">⏳ Timer</button>
                     <button id="tab-pomodoro" onclick="switchTab('pomodoro')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">🍅 Pomodoro</button>
                     <button id="tab-journal" onclick="switchTab('journal')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">📖 Journal</button>
-                    <button id="tab-schedule" onclick="switchTab('schedule')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">📅 Schedule</button>
+                    <button id="tab-schedule" onclick="switchTab('schedule')" class="hidden px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">📅 Schedule</button>
                     <button id="tab-flowtunes" onclick="switchTab('flowtunes')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">🎵 flowtunes</button>
                     <button id="tab-groups" onclick="switchTab('groups')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">👥 Groups</button>
                 </nav>
@@ -1581,6 +1581,7 @@
             <button id="panel-login-btn" onclick="openAuthModal('login'); closeProfilePanel();" class="panel-menu-item">🔑 Log In / Sign Up</button>
             <button id="panel-logout-btn" onclick="logout(); closeProfilePanel();" class="panel-menu-item hidden">🚪 Log Out</button>
             <button onclick="openModal('settings-modal'); closeProfilePanel();" class="panel-menu-item">⚙️ Settings</button>
+            <button onclick="switchTab('schedule'); closeProfilePanel();" class="panel-menu-item">📅 Schedule</button>
             <button onclick="window.location.href = 'todo.html?t=' + Date.now() + window.location.hash;" class="panel-menu-item">✅ To-Do List</button>
 <div id="remember-me-toggle-btn" onclick="toggleRememberMe()" class="panel-menu-item cursor-pointer" title="Stay logged in on this device">
                 <span>🔐</span>
@@ -7552,5 +7553,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24816138bbfc230',t:'MTc4NTYyMTMxNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
