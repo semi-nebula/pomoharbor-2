@@ -4810,6 +4810,12 @@
 
         // --- Screen orientation lock ---
 
+        function isIOS() {
+            const ua = navigator.userAgent || '';
+            return (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) ||
+                   (/Macintosh/.test(ua) && navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+        }
+
         function toggleOrientationLock() {
             const input = document.getElementById('panel-orientation-lock');
             const checked = input ? !input.checked : false;
@@ -4821,27 +4827,75 @@
             applyOrientationLock(!!checked);
         }
 
-        function applyOrientationLock(locked) {
+        async function applyOrientationLock(locked) {
             localStorage.setItem('pomoharbor_orientation_lock', locked ? 'true' : 'false');
-            if (!screen.orientation || !screen.orientation.lock) {
+            updateOrientationLockUI();
+
+            if (!locked) {
+                if (screen.orientation && screen.orientation.unlock) {
+                    try { screen.orientation.unlock(); } catch (e) { console.warn(e); }
+                }
+                // Also exit any fullscreen we may have entered to enable the lock.
+                if (document.fullscreenElement && document.exitFullscreen) {
+                    try { document.exitFullscreen(); } catch (e) { console.warn(e); }
+                }
+                showToast('Screen rotation unlocked');
+                return;
+            }
+
+            // iOS Safari does not allow web pages to lock orientation.
+            if (isIOS()) {
+                localStorage.setItem('pomoharbor_orientation_lock', 'false');
+                updateOrientationLockUI();
+                showToast('iPhone/iPad: turn on your system Rotation Lock button');
+                return;
+            }
+
+            if (!screen.orientation || typeof screen.orientation.lock !== 'function') {
+                localStorage.setItem('pomoharbor_orientation_lock', 'false');
                 updateOrientationLockUI();
                 showToast('Use your phone\'s rotation lock — this browser cannot lock orientation');
                 return;
             }
-            if (locked) {
-                screen.orientation.lock('portrait').then(() => {
-                    updateOrientationLockUI();
+
+            // Some mobile browsers (Samsung Internet, some Android versions)
+            // require fullscreen before they allow orientation.lock(). Try
+            // the simple lock first, then fall back to fullscreen + lock.
+            let lastErr = null;
+            const orientations = ['portrait', 'portrait-primary'];
+            for (const orientation of orientations) {
+                try {
+                    await screen.orientation.lock(orientation);
                     showToast('Screen locked to vertical');
-                }).catch((err) => {
-                    console.warn('Orientation lock failed', err);
-                    updateOrientationLockUI();
-                    showToast('Could not lock orientation');
-                });
-            } else {
-                screen.orientation.unlock();
-                updateOrientationLockUI();
-                showToast('Screen rotation unlocked');
+                    return;
+                } catch (err) {
+                    lastErr = err;
+                }
             }
+
+            // Fallback: enter fullscreen then try again.
+            try {
+                const docEl = document.documentElement;
+                if (docEl.requestFullscreen) {
+                    await docEl.requestFullscreen();
+                    for (const orientation of orientations) {
+                        try {
+                            await screen.orientation.lock(orientation);
+                            showToast('Screen locked to vertical (full screen)');
+                            return;
+                        } catch (err) {
+                            lastErr = err;
+                        }
+                    }
+                }
+            } catch (fsErr) {
+                // Fullscreen not allowed or failed; continue to the fallback message.
+            }
+
+            console.warn('Orientation lock failed', lastErr);
+            localStorage.setItem('pomoharbor_orientation_lock', 'false');
+            updateOrientationLockUI();
+            showToast('Could not lock. Use your phone\'s rotation-lock button.');
         }
 
         function updateOrientationLockUI() {
@@ -4853,8 +4907,15 @@
         function initOrientationLock() {
             updateOrientationLockUI();
             const locked = localStorage.getItem('pomoharbor_orientation_lock') === 'true';
-            if (locked && screen.orientation && screen.orientation.lock) {
-                screen.orientation.lock('portrait').catch(() => {});
+            if (locked) {
+                if (isIOS()) {
+                    // iOS cannot lock from JS; leave the toggle on so the user
+                    // knows they asked for it, and they can use system lock.
+                    return;
+                }
+                if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                    screen.orientation.lock('portrait').catch(() => {});
+                }
             }
         }
 
@@ -6972,5 +7033,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a247b6fced3e7e55',t:'MTc4NTYxNzQyMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a247d0ecad2049d5',t:'MTc4NTYxODQ4NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
