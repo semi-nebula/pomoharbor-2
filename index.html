@@ -958,24 +958,31 @@
         }
 
     </style>
-    <link rel="manifest" href="./manifest.json">
+    <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f0e17">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="PomoHarbor">
     <meta name="application-name" content="PomoHarbor">
-    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32x32.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
-    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <script>
         // Capture the install prompt as early as possible so it is available
         // even if the main script at the bottom of the page hasn't run yet.
         window.__pomoDeferredPrompt = null;
+        window.__pomoInstallDiagnostics = { manifestOk: null, swOk: null, promptEvent: null };
         window.addEventListener('beforeinstallprompt', function(e) {
             e.preventDefault();
             window.__pomoDeferredPrompt = e;
+            window.__pomoInstallDiagnostics.promptEvent = e;
         });
+        // Check that the manifest is reachable from the root. A missing manifest
+        // is the #1 reason Chrome falls back to "Add to Home screen".
+        fetch('/manifest.json', { method: 'HEAD', cache: 'no-store' })
+            .then((r) => { window.__pomoInstallDiagnostics.manifestOk = r.ok; })
+            .catch(() => { window.__pomoInstallDiagnostics.manifestOk = false; });
     </script>
 </head>
 <body class="flex flex-col relative antialiased selection:bg-indigo-500 selection:text-white" onclick="unlockAudio(); closeThemeDropdownOutside(event);">
@@ -6066,6 +6073,16 @@ function exportRoomData() {
                 return;
             }
 
+            const d = window.__pomoInstallDiagnostics || {};
+            if (d.manifestOk === false) {
+                showToast('Manifest not found. Please redeploy all files from deploy.zip.');
+                return;
+            }
+            if (d.swOk === false) {
+                showToast('Service worker failed. Clear site data and reload.');
+                return;
+            }
+
             showInstallInstructions();
         }
 
@@ -6745,7 +6762,17 @@ function exportRoomData() {
 
         // Register the PWA service worker.
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(() => {});
+            navigator.serviceWorker.register('/sw.js')
+                .then((reg) => {
+                    window.__pomoInstallDiagnostics.swOk = true;
+                    console.log('[PWA] Service worker registered:', reg.scope);
+                })
+                .catch((err) => {
+                    window.__pomoInstallDiagnostics.swOk = false;
+                    console.warn('[PWA] Service worker registration failed:', err);
+                });
+        } else {
+            window.__pomoInstallDiagnostics.swOk = false;
         }
     </script>
     <script>
@@ -6761,5 +6788,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2466591c90a162a',t:'MTc4NTYwMzYwMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
