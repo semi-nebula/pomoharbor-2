@@ -895,7 +895,7 @@
             right: 0.75rem;
             bottom: calc(5.5rem + env(safe-area-inset-bottom));
             width: 11.5rem;
-            z-index: 130;
+            z-index: 160;
             border-radius: 1rem;
             padding: 0.65rem 0.75rem;
             background-color: color-mix(in srgb, var(--bg-main) 88%, white 12%);
@@ -5622,10 +5622,13 @@ function exportRoomData() {
             pipVideoStream = null;
         }
 
+        function isMobileOrTablet() {
+            return window.innerWidth <= 1024;
+        }
+
         // Mobile PiP overlay fallback. Works in every browser because it is
         // just a fixed-position div. It is draggable and updates in real time
-        // via updateDisplays(). This is the fallback when native video PiP is
-        // unavailable (most iOS/Android browsers).
+        // via updateDisplays(). This is the primary mobile/tablet PiP experience.
         function createMobilePipOverlay() {
             if (mobilePipOverlay) return;
             const el = document.createElement('div');
@@ -5633,7 +5636,7 @@ function exportRoomData() {
             el.innerHTML = `
                 <div class="pip-overlay-header">
                     <div class="pip-overlay-title">PomoHarbor</div>
-                    <button class="pip-overlay-close" onclick="destroyMobilePipOverlay(); event.stopPropagation();" aria-label="Close">✕</button>
+                    <button class="pip-overlay-close" aria-label="Close">✕</button>
                 </div>
                 <div class="pip-overlay-time">00:00:00</div>
                 <div class="pip-overlay-mode">No active timer</div>
@@ -5641,6 +5644,10 @@ function exportRoomData() {
             document.body.appendChild(el);
             mobilePipOverlay = el;
             setupMobilePipOverlayDrag(el);
+            el.querySelector('.pip-overlay-close').addEventListener('click', (e) => {
+                e.stopPropagation();
+                destroyMobilePipOverlay();
+            });
             updateMobilePipOverlay();
             showToast('Floating timer shown');
         }
@@ -5765,203 +5772,194 @@ function exportRoomData() {
 
         async function togglePictureInPicture() {
             try {
-            // Desktop: Document Picture-in-Picture API.
-            if (window.documentPictureInPicture) {
-                if (pipWindow && !pipWindow.closed) {
-                    pipWindow.close();
-                    pipWindow = null;
-                    return;
-                }
-
-                try {
-                pipWindow = await documentPictureInPicture.requestWindow({
-                    width: 320,
-                    height: 160
-                });
-
-                const doc = pipWindow.document;
-                const theme = document.documentElement.getAttribute('data-theme') || 'catppuccin';
-                doc.documentElement.setAttribute('data-theme', theme);
-                doc.title = 'PomoHarbor PiP';
-
-                const style = doc.createElement('style');
-                style.textContent = `
-                    :root { --bg-main: #0f0e17; --text-main: #cdd6f4; --accent-primary: #b4befe; }
-                    [data-theme="catppuccin"] { --bg-main: #13131d; --text-main: #cdd6f4; --accent-primary: #b4befe; }
-                    [data-theme="turquoise"] { --accent-primary: #38bdf8; }
-                    [data-theme="carnation"] { --accent-primary: #ff6b81; }
-                    [data-theme="cerise"] { --accent-primary: #ff4d6d; }
-                    [data-theme="swarm"] { --accent-primary: #f39c12; }
-                    [data-theme="meadow"] { --accent-primary: #2ecc71; }
-                    [data-theme="merlin"] { --accent-primary: #e0af68; }
-                    [data-theme="blueviolet"] { --accent-primary: #89b4fa; }
-                    [data-theme="monochrome"] { --accent-primary: #ffffff; }
-                    [data-theme="frostcontrast"] { --accent-primary: #7dd3fc; }
-                    [data-theme="inkcontrast"] { --accent-primary: #34d399; }
-                    [data-theme="ambercontrast"] { --accent-primary: #fbbf24; }
-                    * { box-sizing: border-box; }
-                    body {
-                        margin: 0;
-                        width: 100vw;
-                        height: 100vh;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        background-color: var(--bg-main);
-                        color: var(--text-main);
-                        font-family: 'Inter', system-ui, sans-serif;
-                        overflow: hidden;
-                        user-select: none;
-                    }
-                    #pip-root {
-                        width: 100%;
-                        height: 100%;
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        padding: 0.75rem;
-                        text-align: center;
-                    }
-                    #pip-time {
-                        font-size: 3.25rem;
-                        font-weight: 800;
-                        line-height: 1;
-                        color: var(--accent-primary);
-                        font-variant-numeric: tabular-nums;
-                        letter-spacing: -0.02em;
-                    }
-                    #pip-title {
-                        font-size: 0.8rem;
-                        font-weight: 600;
-                        margin-top: 0.4rem;
-                        opacity: 0.9;
-                        max-width: 100%;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                    }
-                    #pip-mode {
-                        font-size: 0.6rem;
-                        font-weight: 700;
-                        text-transform: uppercase;
-                        letter-spacing: 0.08em;
-                        margin-top: 0.15rem;
-                        opacity: 0.6;
-                    }
-                    #pip-source {
-                        margin-top: 0.4rem;
-                        max-width: 100%;
-                        font-size: 0.65rem;
-                        font-weight: 600;
-                        color: var(--text-main);
-                        background: rgba(255,255,255,0.08);
-                        border: 1px solid rgba(255,255,255,0.12);
-                        border-radius: 0.375rem;
-                        padding: 0.2rem 0.4rem;
-                        cursor: pointer;
-                        outline: none;
-                    }
-                    #pip-source option {
-                        background: var(--bg-main);
-                        color: var(--text-main);
-                    }
-                `;
-                doc.head.appendChild(style);
-
-                doc.body.innerHTML = `
-                    <div id="pip-root">
-                        <div id="pip-time">00:00:00</div>
-                        <div id="pip-title">PomoHarbor</div>
-                        <div id="pip-mode">No active timer</div>
-                        <select id="pip-source" title="Choose PiP source">
-                            <option value="auto">Auto</option>
-                            <option value="pomodoro">Pomodoro</option>
-                        </select>
-                    </div>
-                `;
-
-                const sourceSelect = doc.getElementById('pip-source');
-
-                function buildPipSourceOptions() {
-                    const select = doc.getElementById('pip-source');
-                    if (!select) return;
-                    const sig = getPipTimersSignature();
-                    if (sig === pipLastTimersSignature && select.options.length > 2) return;
-                    pipLastTimersSignature = sig;
-
-                    const previousValue = select.value;
-                    while (select.options.length > 2) select.remove(2);
-
-                    timers.forEach(t => {
-                        const opt = doc.createElement('option');
-                        opt.value = String(t.id);
-                        const prefix = (t.type === 'stopwatch') ? '⏱️' : '⏳';
-                        opt.textContent = `${prefix} ${t.title || 'Timer'}`;
-                        if (t.running) opt.textContent += ' ●';
-                        select.appendChild(opt);
-                    });
-
-                    const stillValid = previousValue === 'auto' || previousValue === 'pomodoro' || timers.some(t => String(t.id) === previousValue);
-                    if (stillValid) {
-                        select.value = previousValue;
-                    } else {
-                        select.value = 'auto';
-                        pipSelectedSource = 'auto';
-                    }
-                }
-
-                buildPipSourceOptions();
-                if (sourceSelect) {
-                    sourceSelect.value = pipSelectedSource;
-                    sourceSelect.addEventListener('change', (e) => {
-                        pipSelectedSource = e.target.value;
-                    });
-                }
-
-                function updatePip() {
-                    if (!pipWindow || pipWindow.closed) {
+                // Desktop: Document Picture-in-Picture API.
+                if (window.documentPictureInPicture && !isMobileOrTablet()) {
+                    if (pipWindow && !pipWindow.closed) {
+                        pipWindow.close();
                         pipWindow = null;
                         return;
                     }
-                    buildPipSourceOptions();
-                    const content = getPipContent();
-                    const timeEl = doc.getElementById('pip-time');
-                    const titleEl = doc.getElementById('pip-title');
-                    const modeEl = doc.getElementById('pip-mode');
-                    if (timeEl) timeEl.textContent = content.text;
-                    if (titleEl) titleEl.textContent = content.title;
-                    if (modeEl) modeEl.textContent = content.mode;
-                    pipWindow.requestAnimationFrame(updatePip);
-                }
-                updatePip();
 
-                pipWindow.addEventListener('pagehide', () => {
-                    pipWindow = null;
-                });
-                } catch (e) {
-                    console.warn('PiP error', e);
-                    showToast('Could not open Picture-in-Picture');
-                }
-                return;
-            }
+                    try {
+                        pipWindow = await documentPictureInPicture.requestWindow({
+                            width: 320,
+                            height: 160
+                        });
 
-            // Mobile fallback: try native video PiP first, then overlay.
-            const canVideoPip = document.pictureInPictureEnabled && document.createElement('canvas').captureStream;
-            if (canVideoPip) {
-                try {
-                    await toggleMobilePictureInPicture();
+                        const doc = pipWindow.document;
+                        const theme = document.documentElement.getAttribute('data-theme') || 'catppuccin';
+                        doc.documentElement.setAttribute('data-theme', theme);
+                        doc.title = 'PomoHarbor PiP';
+
+                        const style = doc.createElement('style');
+                        style.textContent = `
+                            :root { --bg-main: #0f0e17; --text-main: #cdd6f4; --accent-primary: #b4befe; }
+                            [data-theme="catppuccin"] { --bg-main: #13131d; --text-main: #cdd6f4; --accent-primary: #b4befe; }
+                            [data-theme="turquoise"] { --accent-primary: #38bdf8; }
+                            [data-theme="carnation"] { --accent-primary: #ff6b81; }
+                            [data-theme="cerise"] { --accent-primary: #ff4d6d; }
+                            [data-theme="swarm"] { --accent-primary: #f39c12; }
+                            [data-theme="meadow"] { --accent-primary: #2ecc71; }
+                            [data-theme="merlin"] { --accent-primary: #e0af68; }
+                            [data-theme="blueviolet"] { --accent-primary: #89b4fa; }
+                            [data-theme="monochrome"] { --accent-primary: #ffffff; }
+                            [data-theme="frostcontrast"] { --accent-primary: #7dd3fc; }
+                            [data-theme="inkcontrast"] { --accent-primary: #34d399; }
+                            [data-theme="ambercontrast"] { --accent-primary: #fbbf24; }
+                            * { box-sizing: border-box; }
+                            body {
+                                margin: 0;
+                                width: 100vw;
+                                height: 100vh;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                background-color: var(--bg-main);
+                                color: var(--text-main);
+                                font-family: 'Inter', system-ui, sans-serif;
+                                overflow: hidden;
+                                user-select: none;
+                            }
+                            #pip-root {
+                                width: 100%;
+                                height: 100%;
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                justify-content: center;
+                                padding: 0.75rem;
+                                text-align: center;
+                            }
+                            #pip-time {
+                                font-size: 3.25rem;
+                                font-weight: 800;
+                                line-height: 1;
+                                color: var(--accent-primary);
+                                font-variant-numeric: tabular-nums;
+                                letter-spacing: -0.02em;
+                            }
+                            #pip-title {
+                                font-size: 0.8rem;
+                                font-weight: 600;
+                                margin-top: 0.4rem;
+                                opacity: 0.9;
+                                max-width: 100%;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
+                            }
+                            #pip-mode {
+                                font-size: 0.6rem;
+                                font-weight: 700;
+                                text-transform: uppercase;
+                                letter-spacing: 0.08em;
+                                margin-top: 0.15rem;
+                                opacity: 0.6;
+                            }
+                            #pip-source {
+                                margin-top: 0.4rem;
+                                max-width: 100%;
+                                font-size: 0.65rem;
+                                font-weight: 600;
+                                color: var(--text-main);
+                                background: rgba(255,255,255,0.08);
+                                border: 1px solid rgba(255,255,255,0.12);
+                                border-radius: 0.375rem;
+                                padding: 0.2rem 0.4rem;
+                                cursor: pointer;
+                                outline: none;
+                            }
+                            #pip-source option {
+                                background: var(--bg-main);
+                                color: var(--text-main);
+                            }
+                        `;
+                        doc.head.appendChild(style);
+
+                        doc.body.innerHTML = `
+                            <div id="pip-root">
+                                <div id="pip-time">00:00:00</div>
+                                <div id="pip-title">PomoHarbor</div>
+                                <div id="pip-mode">No active timer</div>
+                                <select id="pip-source" title="Choose PiP source">
+                                    <option value="auto">Auto</option>
+                                    <option value="pomodoro">Pomodoro</option>
+                                </select>
+                            </div>
+                        `;
+
+                        const sourceSelect = doc.getElementById('pip-source');
+
+                        function buildPipSourceOptions() {
+                            const select = doc.getElementById('pip-source');
+                            if (!select) return;
+                            const sig = getPipTimersSignature();
+                            if (sig === pipLastTimersSignature && select.options.length > 2) return;
+                            pipLastTimersSignature = sig;
+
+                            const previousValue = select.value;
+                            while (select.options.length > 2) select.remove(2);
+
+                            timers.forEach(t => {
+                                const opt = doc.createElement('option');
+                                opt.value = String(t.id);
+                                const prefix = (t.type === 'stopwatch') ? '⏱️' : '⏳';
+                                opt.textContent = `${prefix} ${t.title || 'Timer'}`;
+                                if (t.running) opt.textContent += ' ●';
+                                select.appendChild(opt);
+                            });
+
+                            const stillValid = previousValue === 'auto' || previousValue === 'pomodoro' || timers.some(t => String(t.id) === previousValue);
+                            if (stillValid) {
+                                select.value = previousValue;
+                            } else {
+                                select.value = 'auto';
+                                pipSelectedSource = 'auto';
+                            }
+                        }
+
+                        buildPipSourceOptions();
+                        if (sourceSelect) {
+                            sourceSelect.value = pipSelectedSource;
+                            sourceSelect.addEventListener('change', (e) => {
+                                pipSelectedSource = e.target.value;
+                            });
+                        }
+
+                        function updatePip() {
+                            if (!pipWindow || pipWindow.closed) {
+                                pipWindow = null;
+                                return;
+                            }
+                            buildPipSourceOptions();
+                            const content = getPipContent();
+                            const timeEl = doc.getElementById('pip-time');
+                            const titleEl = doc.getElementById('pip-title');
+                            const modeEl = doc.getElementById('pip-mode');
+                            if (timeEl) timeEl.textContent = content.text;
+                            if (titleEl) titleEl.textContent = content.title;
+                            if (modeEl) modeEl.textContent = content.mode;
+                            pipWindow.requestAnimationFrame(updatePip);
+                        }
+                        updatePip();
+
+                        pipWindow.addEventListener('pagehide', () => {
+                            pipWindow = null;
+                        });
+                    } catch (e) {
+                        console.warn('PiP error', e);
+                        showToast('Could not open Picture-in-Picture');
+                    }
                     return;
-                } catch (e) {
-                    console.warn('Native mobile PiP failed, using overlay fallback', e);
                 }
-            }
 
-            // Last-resort fallback: floating overlay that works in every browser.
-            toggleMobilePipOverlay();
+                // Mobile/tablet: use the reliable overlay fallback.
+                // Native video PiP on mobile is too inconsistent across browsers,
+                // so we go straight to the draggable floating overlay.
+                toggleMobilePipOverlay();
             } catch (err) {
                 console.warn('togglePictureInPicture error', err);
-                showToast('Could not open Picture-in-Picture: ' + (err.message || 'unknown error'));
+                showToast('Could not open timer overlay');
             }
         }
 
@@ -6788,5 +6786,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a246ddc7fe59ac91',t:'MTc4NTYwODUyNg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
