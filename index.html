@@ -1386,7 +1386,7 @@
     <!-- Header -->
         <header class="border-b custom-nav sticky top-0 z-40 shrink-0">
         <div class="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-2 overflow-visible">
-            <div class="flex items-center space-x-1 sm:space-x-2 overflow-x-auto sm:overflow-visible no-scrollbar py-1 flex-1 min-w-0 justify-start">
+            <div class="flex items-center space-x-1 sm:space-x-2 overflow-hidden no-scrollbar py-1 flex-1 min-w-0 justify-start">
                 <h1 class="text-base sm:text-xl font-extrabold accent-text tracking-tight flex items-center gap-1 sm:gap-1.5 shrink-0 leading-none">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0 sm:w-7 sm:h-7">
                       <path d="M4 4L8 8H16L20 4V16C20 18.2 18.2 20 16 20H8C5.8 20 4 18.2 4 16V4Z" fill="#0F172A" stroke="#A855F7" stroke-width="1.5"/>
@@ -1396,15 +1396,16 @@
                     </svg>
                     <span class="hidden xl:inline">PomoHarbor</span>
                 </h1>
-                <nav id="main-nav-tabs" class="hidden lg:flex items-center space-x-0.5 shrink-0 overflow-x-auto no-scrollbar">
+                <nav id="main-nav-tabs" class="hidden lg:flex items-center space-x-0.5 shrink-0 overflow-x-auto no-scrollbar scroll-smooth flex-1 min-w-0">
                     <button id="tab-stopwatch" onclick="switchTab('stopwatch')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow accent-text tab-active whitespace-nowrap">⏱️ Stopwatch</button>
                     <button id="tab-timer" onclick="switchTab('timer')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">⏳ Timer</button>
                     <button id="tab-pomodoro" onclick="switchTab('pomodoro')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">🍅 Pomodoro</button>
                     <button id="tab-journal" onclick="switchTab('journal')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">📖 Journal</button>
-                    <button id="tab-schedule" onclick="switchTab('schedule')" class="hidden px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">📅 Schedule</button>
+                    <button id="tab-schedule" onclick="switchTab('schedule')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">📅 Schedule</button>
                     <button id="tab-flowtunes" onclick="switchTab('flowtunes')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">🎵 flowtunes</button>
                     <button id="tab-groups" onclick="switchTab('groups')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">👥 Groups</button>
                 </nav>
+                <button id="header-nav-scroll-hint" onclick="scrollHeaderNavRight()" class="hidden lg:flex items-center justify-center w-5 h-5 ml-1 rounded-full custom-nav border text-[10px] font-bold text-muted-custom hover:text-white shrink-0" title="More tabs">❯</button>
 
                 <!-- Mobile bottom nav: 4 tabs + More sheet -->
                 <nav id="mobile-nav-tabs" class="flex lg:hidden items-center shrink-0 no-scrollbar">
@@ -3670,6 +3671,7 @@
             if (tab === 'stopwatch' || tab === 'timer') mobileTimerSubview = tab;
             updateMobileNavActiveState(tab);
             renderMobileTimersSegment();
+            updateHeaderNavScrollHint();
 
             const desktopAddBtn = document.getElementById('desktop-add-btn');
             if (desktopAddBtn) {
@@ -3719,6 +3721,31 @@
                 });
             }, 120);
         }
+
+        function updateHeaderNavScrollHint() {
+            const nav = document.getElementById('main-nav-tabs');
+            const hint = document.getElementById('header-nav-scroll-hint');
+            if (!nav || !hint) return;
+            const hasOverflow = nav.scrollWidth > nav.clientWidth + 2;
+            const atEnd = nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 2;
+            hint.classList.toggle('hidden', !(hasOverflow && !atEnd));
+        }
+
+        function scrollHeaderNavRight() {
+            const nav = document.getElementById('main-nav-tabs');
+            if (!nav) return;
+            nav.scrollBy({ left: 120, behavior: 'smooth' });
+            setTimeout(updateHeaderNavScrollHint, 300);
+        }
+
+        (function setupHeaderNavScroll() {
+            const nav = document.getElementById('main-nav-tabs');
+            if (!nav) return;
+            nav.addEventListener('scroll', updateHeaderNavScrollHint, { passive: true });
+            window.addEventListener('resize', updateHeaderNavScrollHint);
+            // Initial check after fonts/layout settle.
+            setTimeout(updateHeaderNavScrollHint, 500);
+        })();
 
         function togglePomodoro() {
             unlockAudio();
@@ -4151,6 +4178,7 @@
 
         function render() {
             renderMobileTimersSegment();
+            updateHeaderNavScrollHint();
             const pomoTasksPreview = document.getElementById('pomodoro-tasks-preview');
             if (pomoTasksPreview && currentTab !== 'pomodoro') pomoTasksPreview.classList.add('hidden');
             const mainContainer = document.getElementById('main-container');
@@ -5085,7 +5113,7 @@
         const MAX_SCHEDULE_SLOTS = 50;
         const SCHEDULE_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
         const SCHEDULE_PHOTO_KEY = roomKey('pomoharbor_schedule_photo');
-        let scheduleState = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], slots: [], remindersEnabled: true };
+        let scheduleState = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], slots: [], remindersEnabled: true };
         let scheduleNotifiedIds = new Set();
         let scheduleSelectedDay = 'Mon';
         let scheduleReminderInterval = null;
@@ -5101,7 +5129,7 @@
                         remindersEnabled: parsed.remindersEnabled !== false
                     };
                 } catch (e) {
-                    scheduleState = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], slots: [], remindersEnabled: true };
+                    scheduleState = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], slots: [], remindersEnabled: true };
                 }
             }
             if (userSettings.scheduleReminders === undefined) userSettings.scheduleReminders = true;
@@ -5213,14 +5241,17 @@
                     const opacity = isPast ? 'opacity-50' : 'opacity-100';
                     const ring = isCurrent ? 'ring-2 ring-[var(--accent-primary)]' : '';
                     const notifyBadge = slot.notify ? '<span class="text-[10px]">🔔</span>' : '';
-                    const timerBadge = slot.timer ? '<span class="text-[10px]">⏱️</span>' : '';
+                    const timerBadge = slot.timerId ? '<span class="text-[10px]">⏱️</span>' : '';
+                    const startBtn = slot.timerId
+                        ? `<button onclick="event.stopPropagation(); startScheduleTimer('${slot.id}')" class="ml-2 px-2 py-1 custom-btn text-[10px] rounded-lg font-bold">Start</button>`
+                        : '';
                     return `
                         <div onclick="openScheduleSlotModal('${slot.id}')" class="panel-menu-item justify-between ${opacity} ${ring} ${cls} border cursor-pointer">
                             <div class="flex items-center gap-2 min-w-0">
                                 <div class="text-xs font-bold mono whitespace-nowrap">${formatTime12(startMin)} – ${formatTime12(endMin)}</div>
                                 <div class="text-xs font-semibold truncate">${escapeHtml(slot.title || 'Untitled')}</div>
                             </div>
-                            <div class="flex items-center gap-1.5 shrink-0">${notifyBadge}${timerBadge}</div>
+                            <div class="flex items-center gap-1.5 shrink-0">${notifyBadge}${timerBadge}${startBtn}</div>
                         </div>
                     `;
                 }).join('');
@@ -5297,23 +5328,68 @@
             if (minutesFromTime(start) >= minutesFromTime(end)) { errEl.innerText = 'End time must be after start time.'; return; }
             if (!title) { errEl.innerText = 'Please enter a title.'; return; }
 
+            const durationMs = (minutesFromTime(end) - minutesFromTime(start)) * 60000;
+            if (durationMs <= 0) { errEl.innerText = 'End time must be after start time.'; return; }
+
             const existingId = idEl.value;
+            let slot;
             if (existingId) {
                 const idx = scheduleState.slots.findIndex(s => s.id === existingId);
                 if (idx !== -1) {
-                    scheduleState.slots[idx] = {
-                        ...scheduleState.slots[idx], day, start, end, title, color, notify: notifyEl.checked, timer: timerEl.checked
-                    };
+                    slot = scheduleState.slots[idx];
+                    slot.day = day;
+                    slot.start = start;
+                    slot.end = end;
+                    slot.title = title;
+                    slot.color = color;
+                    slot.notify = notifyEl.checked;
+                    slot.timer = timerEl.checked;
                 }
             } else {
                 if (scheduleState.slots.length >= MAX_SCHEDULE_SLOTS) {
                     errEl.innerText = `Maximum ${MAX_SCHEDULE_SLOTS} slots allowed.`;
                     return;
                 }
-                scheduleState.slots.push({
+                slot = {
                     id: 'sch_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
                     day, start, end, title, color, notify: notifyEl.checked, timer: timerEl.checked
-                });
+                };
+                scheduleState.slots.push(slot);
+            }
+
+            // Link timer: create or update a timer tied to this slot.
+            if (timerEl.checked) {
+                if (!slot.timerId) slot.timerId = 'tmr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+                let timer = timers.find(t => t.id === slot.timerId);
+                if (!timer) {
+                    timer = {
+                        id: slot.timerId,
+                        title: slot.title || 'Scheduled slot',
+                        category: 'Schedule',
+                        type: 'timer',
+                        durationMs: durationMs,
+                        elapsed: 0,
+                        running: false,
+                        startTime: 0,
+                        finished: false,
+                        laps: [],
+                        nudge8hShown: false,
+                        nudge12hShown: false
+                    };
+                    timers.push(timer);
+                } else {
+                    timer.title = slot.title || 'Scheduled slot';
+                    timer.durationMs = durationMs;
+                    timer.elapsed = 0;
+                    timer.finished = false;
+                }
+                save();
+            } else if (slot.timerId) {
+                // Unlink: remove the tied timer and clear the id.
+                timers = timers.filter(t => t.id !== slot.timerId);
+                delete slot.timerId;
+                delete slot.timer;
+                save();
             }
 
             saveSchedule();
@@ -5326,6 +5402,11 @@
             const idEl = document.getElementById('schedule-slot-id');
             const id = idEl.value;
             if (!id) return;
+            const slot = scheduleState.slots.find(s => s.id === id);
+            if (slot && slot.timerId) {
+                timers = timers.filter(t => t.id !== slot.timerId);
+                save();
+            }
             scheduleState.slots = scheduleState.slots.filter(s => s.id !== id);
             saveSchedule();
             closeModal('schedule-slot-modal');
@@ -5385,29 +5466,46 @@
                         const title = 'Up next: ' + (slot.title || 'Scheduled slot');
                         triggerDesktopNotification('PomoHarbor', title);
                         showToast(title);
-                        if (slot.timer) {
-                            // Pre-create a stopped timer with the slot title so the user can tap start quickly.
-                            const durationMs = (minutesFromTime(slot.end) - startMin) * 60000;
-                            if (durationMs > 0 && timers.length < MAX_LIMIT) {
-                                timers.push({
-                                    id: Date.now(),
-                                    title: slot.title || 'Scheduled slot',
-                                    category: 'Schedule',
-                                    type: 'timer',
-                                    durationMs: durationMs,
-                                    elapsed: 0,
-                                    running: false,
-                                    startTime: 0,
-                                    finished: false,
-                                    laps: []
-                                });
-                                save();
-                                render();
-                            }
+                        if (slot.timerId) {
+                            startScheduleTimer(slot.id);
                         }
                     }
                 }
             });
+        }
+
+        function startScheduleTimer(slotId) {
+            const slot = scheduleState.slots.find(s => s.id === slotId);
+            if (!slot || !slot.timerId) return;
+            let timer = timers.find(t => t.id === slot.timerId);
+            if (!timer) {
+                const durationMs = (minutesFromTime(slot.end) - minutesFromTime(slot.start)) * 60000;
+                if (durationMs <= 0) { showToast('Slot has no valid duration'); return; }
+                timer = {
+                    id: slot.timerId,
+                    title: slot.title || 'Scheduled slot',
+                    category: 'Schedule',
+                    type: 'timer',
+                    durationMs: durationMs,
+                    elapsed: 0,
+                    running: false,
+                    startTime: 0,
+                    finished: false,
+                    laps: [],
+                    nudge8hShown: false,
+                    nudge12hShown: false
+                };
+                timers.push(timer);
+            }
+            if (timer.running) { switchTab('timer'); render(); return; }
+            timer.running = true;
+            timer.startTime = Date.now();
+            timer.finished = false;
+            save();
+            syncWorkerState();
+            switchTab('timer');
+            render();
+            showToast('Timer started for ' + (slot.title || 'slot'));
         }
 
         function startScheduleReminderLoop() {
@@ -7553,5 +7651,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24816138bbfc230',t:'MTc4NTYyMTMxNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24be207796a7e55',t:'MTc4NTY2MTEyOA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
