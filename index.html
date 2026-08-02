@@ -4401,26 +4401,37 @@
                     rightHint.classList.toggle('hidden', !(hasOverflow && !atEnd));
             }
 
-            function scrollHeaderNavLeft() {
+            // A fixed 120px step was roughly ONE nav item wide, so reaching the
+            // far end always took several clicks. Scroll by most of the visible
+            // width instead (a "page" of tabs), keeping a small overlap so the
+            // tab you were looking at stays partly in view for orientation.
+            function headerNavScrollStep(nav) {
+                const overlap = 40;
+                return Math.max(120, nav.clientWidth - overlap);
+            }
+
+            function scrollHeaderNav(direction) {
                 const nav = document.getElementById('main-nav-tabs');
                 if (!nav)
                     return;
-                nav.scrollBy({
-                    left: -120,
+                const step = headerNavScrollStep(nav) * direction;
+                const target = Math.max(0, Math.min(nav.scrollLeft + step, nav.scrollWidth - nav.clientWidth));
+                nav.scrollTo({
+                    left: target,
                     behavior: 'smooth'
                 });
-                setTimeout(updateHeaderNavScrollHint, 300);
+                // Refresh the arrows once the smooth scroll has settled. The
+                // scroll listener also fires, so this is just a safety net for
+                // browsers that suppress scroll events at the extremes.
+                setTimeout(updateHeaderNavScrollHint, 350);
+            }
+
+            function scrollHeaderNavLeft() {
+                scrollHeaderNav(-1);
             }
 
             function scrollHeaderNavRight() {
-                const nav = document.getElementById('main-nav-tabs');
-                if (!nav)
-                    return;
-                nav.scrollBy({
-                    left: 120,
-                    behavior: 'smooth'
-                });
-                setTimeout(updateHeaderNavScrollHint, 300);
+                scrollHeaderNav(1);
             }
 
             (function setupHeaderNavScroll() {
@@ -9080,5 +9091,5 @@
             });
         </script>
         <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-    <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24f5936e83ccd03',t:'MTc4NTY5NzQ2Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+    </body>
 </html>
