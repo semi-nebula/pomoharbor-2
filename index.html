@@ -1604,19 +1604,20 @@
                 <h3 id="schedule-slot-modal-title" class="text-base font-bold accent-text mb-4">Add Slot</h3>
                 <input id="schedule-slot-id" type="hidden">
                 <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div>
-                        <label class="block text-[10px] font-bold text-muted-custom uppercase tracking-wider mb-1">Day</label>
-                        <select id="schedule-slot-day" class="w-full custom-nav border rounded-xl px-3 py-2 text-xs outline-none text-white">
-                            <option value="Mon">Monday</option>
-                            <option value="Tue">Tuesday</option>
-                            <option value="Wed">Wednesday</option>
-                            <option value="Thu">Thursday</option>
-                            <option value="Fri">Friday</option>
-                            <option value="Sat">Saturday</option>
-                            <option value="Sun">Sunday</option>
-                        </select>
+                    <div class="col-span-2">
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-[10px] font-bold text-muted-custom uppercase tracking-wider">Day<span id="schedule-slot-day-multi-hint">s</span></label>
+                            <div id="schedule-slot-day-presets" class="flex items-center gap-1">
+                                <button type="button" onclick="setScheduleDayPreset('weekdays')" class="px-2 py-0.5 custom-nav border text-[9px] rounded-lg font-bold text-muted-custom hover:text-white">Mon-Fri</button>
+                                <button type="button" onclick="setScheduleDayPreset('weekend')" class="px-2 py-0.5 custom-nav border text-[9px] rounded-lg font-bold text-muted-custom hover:text-white">Sat-Sun</button>
+                                <button type="button" onclick="setScheduleDayPreset('all')" class="px-2 py-0.5 custom-nav border text-[9px] rounded-lg font-bold text-muted-custom hover:text-white">Mon-Sun</button>
+                            </div>
+                        </div>
+                        <div id="schedule-slot-day-chips" class="flex flex-wrap gap-1.5"></div>
+                        <input id="schedule-slot-day" type="hidden">
+                        <p id="schedule-slot-day-note" class="text-[9px] text-muted-custom mt-1"></p>
                     </div>
-                    <div>
+                    <div class="col-span-2">
                         <label class="block text-[10px] font-bold text-muted-custom uppercase tracking-wider mb-1">Color</label>
                         <select id="schedule-slot-color" class="w-full custom-nav border rounded-xl px-3 py-2 text-xs outline-none text-white">
                             <option value="indigo">Indigo</option>
@@ -2387,8 +2388,12 @@
 
             // App version + changelog. Bump APP_VERSION whenever you ship a
             // notable update; the app can then highlight new entries.
-            const APP_VERSION = '1.3.0';
+            const APP_VERSION = '1.4.0';
             const CHANGELOG = [{
+                version: '1.4.0',
+                date: '2026-08-03',
+                items: ['New Chat: group chats and 1-to-1 direct messages with friends, with unread badges and notifications.', 'Chat messages are automatically deleted after 2 days.', 'Fixed being unexpectedly signed out shortly after logging in.', 'Fixed rooms being wrongly cleared while the app was still loading.', 'Timers now stay in sync across devices even when their clocks differ.', 'Scheduled timers can now be paused, reset, and deleted properly.', 'Scheduled timers only appear in the Timers tab on the day they belong to.', 'Up to 20 scheduled timers per day; scheduled timers no longer use up your manual timer slots.', 'Schedule reminders now also show in the in-app notification panel.', 'Header tab arrows scroll a full page of tabs instead of a single tab.', 'Tightened database security rules for accounts, friends, groups, and chat.']
+            }, {
                 version: '1.3.0',
                 date: '2026-08-02',
                 items: ['New Schedule tab: build a weekly timetable with customizable days and time slots.', 'Upload a timetable photo for quick reference (stored locally, compressed to save space).', 'Schedule reminders: get a notification when a slot is about to start.', 'Option to pre-create a timer for any scheduled slot.', 'Schedule data syncs with your account room across devices.']
@@ -5353,7 +5358,7 @@
                     // writes and randomly clobber them - see pushStateToCloud().
                     quickLinks: JSON.parse(localStorage.getItem(roomKey('pomoharbor_quick_links'))) || [],
                     schedule: JSON.parse(localStorage.getItem(roomKey('pomoharbor_schedule'))) || {
-                        days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                        days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
                         slots: [],
                         remindersEnabled: true
                     },
@@ -6334,6 +6339,89 @@
                 renderSchedule();
             }
 
+            // --- Multi-day slot selection -------------------------------
+            // A routine like "Maths, Mon/Wed/Fri 9-10" used to require creating
+            // the same slot three times. The modal now takes a SET of days and
+            // creates one slot per selected day in a single save. Editing an
+            // existing slot stays single-day so you never accidentally fan one
+            // entry out into seven.
+            let scheduleSelectedDays = new Set();
+            let scheduleSlotEditing = false;
+            // The day the slot being edited already lives on. Kept locked in the
+            // chip selector so editing can ADD copies to other days without ever
+            // moving or losing the original.
+            let scheduleEditingOriginalDay = null;
+
+            function renderScheduleDayChips() {
+                const wrap = document.getElementById('schedule-slot-day-chips');
+                const hidden = document.getElementById('schedule-slot-day');
+                const note = document.getElementById('schedule-slot-day-note');
+                const presets = document.getElementById('schedule-slot-day-presets');
+                const multiHint = document.getElementById('schedule-slot-day-multi-hint');
+                if (!wrap)
+                    return;
+                const labels = {
+                    Mon: 'M',
+                    Tue: 'T',
+                    Wed: 'W',
+                    Thu: 'T',
+                    Fri: 'F',
+                    Sat: 'S',
+                    Sun: 'S'
+                };
+                wrap.innerHTML = SCHEDULE_DAYS.map(d => {
+                    const on = scheduleSelectedDays.has(d);
+                    const cls = on ? 'custom-btn' : 'custom-nav border text-muted-custom hover:text-white';
+                    return `<button type="button" onclick="toggleScheduleDay('${d}')" title="${d}" class="${cls} w-9 h-8 rounded-lg text-[11px] font-bold transition">${labels[d]}</button>`;
+                }
+                ).join('');
+                if (hidden)
+                    hidden.value = Array.from(scheduleSelectedDays).join(',');
+                if (presets)
+                    presets.classList.remove('hidden');
+                if (multiHint)
+                    multiHint.classList.remove('hidden');
+                if (note) {
+                    const n = scheduleSelectedDays.size;
+                    const extra = scheduleSlotEditing ? n - 1 : n;
+                    if (scheduleSlotEditing && extra <= 0)
+                        note.innerText = 'Tick more days to copy this slot to them.';
+                    else if (scheduleSlotEditing)
+                        note.innerText = 'Updates this slot and copies it to ' + extra + ' more day' + (extra > 1 ? 's' : '') + '.';
+                    else if (n === 0)
+                        note.innerText = 'Pick at least one day.';
+                    else if (n === 1)
+                        note.innerText = 'Creates 1 slot.';
+                    else
+                        note.innerText = 'Creates ' + n + ' slots, one per selected day.';
+                }
+            }
+
+            function toggleScheduleDay(day) {
+                // Multi-select in BOTH modes. While editing, the slot's own day
+                // stays locked on: untick-everything would be ambiguous, and
+                // days are only ever added here, never silently removed.
+                if (scheduleSlotEditing && day === scheduleEditingOriginalDay)
+                    return;
+                if (scheduleSelectedDays.has(day))
+                    scheduleSelectedDays.delete(day);
+                else
+                    scheduleSelectedDays.add(day);
+                renderScheduleDayChips();
+            }
+
+            function setScheduleDayPreset(kind) {
+                if (kind === 'weekdays')
+                    scheduleSelectedDays = new Set(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+                else if (kind === 'weekend')
+                    scheduleSelectedDays = new Set(['Sat', 'Sun']);
+                else
+                    scheduleSelectedDays = new Set(SCHEDULE_DAYS);
+                if (scheduleSlotEditing && scheduleEditingOriginalDay)
+                    scheduleSelectedDays.add(scheduleEditingOriginalDay);
+                renderScheduleDayChips();
+            }
+
             function openScheduleSlotModal(slotId) {
                 const modal = document.getElementById('schedule-slot-modal');
                 const titleEl = document.getElementById('schedule-slot-modal-title');
@@ -6355,7 +6443,9 @@
                         return;
                     titleEl.innerText = 'Edit Slot';
                     idEl.value = slot.id;
-                    dayEl.value = slot.day;
+                    scheduleSlotEditing = true;
+                    scheduleEditingOriginalDay = slot.day;
+                    scheduleSelectedDays = new Set([slot.day]);
                     startEl.value = slot.start;
                     endEl.value = slot.end;
                     titleInput.value = slot.title || '';
@@ -6366,7 +6456,9 @@
                 } else {
                     titleEl.innerText = 'Add Slot';
                     idEl.value = '';
-                    dayEl.value = scheduleSelectedDay;
+                    scheduleSlotEditing = false;
+                    scheduleEditingOriginalDay = null;
+                    scheduleSelectedDays = new Set([scheduleSelectedDay]);
                     startEl.value = '09:00';
                     endEl.value = '10:00';
                     titleInput.value = '';
@@ -6375,6 +6467,7 @@
                     timerEl.checked = false;
                     deleteBtn.classList.add('hidden');
                 }
+                renderScheduleDayChips();
                 openModal('schedule-slot-modal');
             }
 
@@ -6417,89 +6510,129 @@
 
                 const existingId = idEl.value;
 
-                // Enforce the per-day timer cap before mutating anything. The
-                // slot being edited is excluded from the count so re-saving it
-                // (or moving it to another day) never counts against itself.
-                if (timerEl.checked && scheduledTimerCountForDay(day, existingId || null) >= MAX_SCHEDULE_TIMERS_PER_DAY) {
-                    errEl.innerText = `Maximum ${MAX_SCHEDULE_TIMERS_PER_DAY} timers on ${day}. Untick "Link timer" or pick another day.`;
+                // Days come from the chip selector, in Mon-Sun order.
+                const days = SCHEDULE_DAYS.filter(d => scheduleSelectedDays.has(d));
+                if (days.length === 0) {
+                    errEl.innerText = 'Please select at least one day.';
                     return;
                 }
 
-                let slot;
+                // When editing, the slot keeps its own day and any EXTRA ticked
+                // days become new copies.
+                const extraDays = existingId ? days.filter(d => d !== scheduleEditingOriginalDay) : days;
+
+                // Validate every target day up front so we never create a partial
+                // batch and then fail halfway through.
+                if (scheduleState.slots.length + extraDays.length > MAX_SCHEDULE_SLOTS) {
+                    errEl.innerText = `Maximum ${MAX_SCHEDULE_SLOTS} slots allowed.`;
+                    return;
+                }
+                if (timerEl.checked) {
+                    const full = days.filter(d => scheduledTimerCountForDay(d, existingId || null) >= MAX_SCHEDULE_TIMERS_PER_DAY);
+                    if (full.length) {
+                        errEl.innerText = `Maximum ${MAX_SCHEDULE_TIMERS_PER_DAY} timers on ${full.join(', ')}. Untick "Link timer" or deselect those days.`;
+                        return;
+                    }
+                }
+
+                // Builds/updates the timer tied to one slot. Each day gets its own
+                // timer id so the per-day filtering and caps stay correct.
+                function applySlotTimer(slot) {
+                    if (timerEl.checked) {
+                        if (!slot.timerId)
+                            slot.timerId = 'tmr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+                        let timer = timers.find(t => t.id === slot.timerId);
+                        if (!timer) {
+                            timers.push({
+                                id: slot.timerId,
+                                title: slot.title || 'Scheduled slot',
+                                category: 'Schedule',
+                                type: 'timer',
+                                durationMs: durationMs,
+                                elapsed: 0,
+                                running: false,
+                                startTime: 0,
+                                finished: false,
+                                laps: [],
+                                nudge8hShown: false,
+                                nudge12hShown: false,
+                                scheduleDay: slot.day,
+                                scheduleSlotId: slot.id
+                            });
+                        } else {
+                            timer.title = slot.title || 'Scheduled slot';
+                            timer.durationMs = durationMs;
+                            timer.elapsed = 0;
+                            timer.finished = false;
+                            timer.scheduleDay = slot.day;
+                            timer.scheduleSlotId = slot.id;
+                        }
+                    } else if (slot.timerId) {
+                        timers = timers.filter(t => t.id !== slot.timerId);
+                        delete slot.timerId;
+                        delete slot.timer;
+                    }
+                }
+
+                let created = 0;
+                let copied = 0;
                 if (existingId) {
-                    const idx = scheduleState.slots.findIndex(s => s.id === existingId);
-                    if (idx !== -1) {
-                        slot = scheduleState.slots[idx];
-                        slot.day = day;
+                    const slot = scheduleState.slots.find(s => s.id === existingId);
+                    if (slot) {
+                        slot.day = scheduleEditingOriginalDay || slot.day;
                         slot.start = start;
                         slot.end = end;
                         slot.title = title;
                         slot.color = color;
                         slot.notify = notifyEl.checked;
                         slot.timer = timerEl.checked;
+                        applySlotTimer(slot);
+                        created = 1;
                     }
-                } else {
-                    if (scheduleState.slots.length >= MAX_SCHEDULE_SLOTS) {
-                        errEl.innerText = `Maximum ${MAX_SCHEDULE_SLOTS} slots allowed.`;
-                        return;
-                    }
-                    slot = {
-                        id: 'sch_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-                        day,
-                        start,
-                        end,
-                        title,
-                        color,
-                        notify: notifyEl.checked,
-                        timer: timerEl.checked
-                    };
-                    scheduleState.slots.push(slot);
-                }
-
-                // Link timer: create or update a timer tied to this slot.
-                if (timerEl.checked) {
-                    if (!slot.timerId)
-                        slot.timerId = 'tmr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-                    let timer = timers.find(t => t.id === slot.timerId);
-                    if (!timer) {
-                        timer = {
-                            id: slot.timerId,
-                            title: slot.title || 'Scheduled slot',
-                            category: 'Schedule',
-                            type: 'timer',
-                            durationMs: durationMs,
-                            elapsed: 0,
-                            running: false,
-                            startTime: 0,
-                            finished: false,
-                            laps: [],
-                            nudge8hShown: false,
-                            nudge12hShown: false,
-                            scheduleDay: slot.day,
-                            scheduleSlotId: slot.id
+                    // Copy to the additional days that were ticked.
+                    extraDays.forEach( (d, i) => {
+                        const copy = {
+                            id: 'sch_' + Date.now() + '_c' + i + '_' + Math.random().toString(36).slice(2, 7),
+                            day: d,
+                            start,
+                            end,
+                            title,
+                            color,
+                            notify: notifyEl.checked,
+                            timer: timerEl.checked
                         };
-                        timers.push(timer);
-                    } else {
-                        timer.title = slot.title || 'Scheduled slot';
-                        timer.durationMs = durationMs;
-                        timer.elapsed = 0;
-                        timer.finished = false;
-                        timer.scheduleDay = slot.day;
-                        timer.scheduleSlotId = slot.id;
+                        scheduleState.slots.push(copy);
+                        applySlotTimer(copy);
+                        copied++;
                     }
-                    save();
-                } else if (slot.timerId) {
-                    // Unlink: remove the tied timer and clear the id.
-                    timers = timers.filter(t => t.id !== slot.timerId);
-                    delete slot.timerId;
-                    delete slot.timer;
-                    save();
+                    );
+                } else {
+                    days.forEach( (d, i) => {
+                        const slot = {
+                            id: 'sch_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 7),
+                            day: d,
+                            start,
+                            end,
+                            title,
+                            color,
+                            notify: notifyEl.checked,
+                            timer: timerEl.checked
+                        };
+                        scheduleState.slots.push(slot);
+                        applySlotTimer(slot);
+                        created++;
+                    }
+                    );
                 }
+                save();
 
                 saveSchedule();
                 closeModal('schedule-slot-modal');
                 renderSchedule();
-                showToast(existingId ? 'Slot updated' : 'Slot added');
+                if (existingId)
+                    showToast(copied ? 'Slot updated and copied to ' + copied + ' more day' + (copied > 1 ? 's' : '') : 'Slot updated');
+                else
+                    showToast(created > 1 ? created + ' slots added' : 'Slot added');
             }
 
             function deleteScheduleSlot() {
@@ -8957,45 +9090,61 @@
 
             // Raises the unread counter for everyone except the sender, and
             // drops a bell notification so offline members find out.
-            async function bumpChatUnread(kind, id, text) {
+            // Fire-and-forget helper: a failed bookkeeping write must never stop
+            // the notification that the user actually sees.
+            function chatBestEffort(promise, label) {
                 try {
-                    const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
-                    const myName = (userProfile && (userProfile.name || userProfile.username)) || 'Someone';
-                    if (kind === 'dm') {
-                        const other = id.split('_').find(u => u !== authUser.uid);
-                        if (!other)
-                            return;
-                        await firebase.database().ref('dmMeta/' + id).update({
-                            lastMsg: preview,
-                            lastAt: firebase.database.ServerValue.TIMESTAMP
-                        });
-                        await firebase.database().ref('users/' + other + '/dms/' + id).update({
-                            with: authUser.uid
-                        });
-                        await firebase.database().ref('users/' + other + '/dms/' + id + '/unread').transaction(c => (c || 0) + 1);
-                        sendNotification(other, {
-                            title: myName,
-                            body: preview,
-                            type: 'chat'
-                        });
-                    } else {
-                        const snap = await firebase.database().ref('groups/' + id + '/members').once('value');
-                        const members = Object.keys(snap.val() || {}).filter(u => u !== authUser.uid);
-                        const gs = await firebase.database().ref('groups/' + id + '/meta/name').once('value');
-                        const gname = gs.val() || 'Group';
-                        members.forEach(u => {
-                            firebase.database().ref('users/' + u + '/groupUnread/' + id).transaction(c => (c || 0) + 1);
-                            sendNotification(u, {
-                                title: gname,
-                                body: myName + ': ' + preview,
-                                type: 'chat'
-                            });
-                        }
-                        );
-                    }
+                    Promise.resolve(promise).catch(e => console.warn('[chat] ' + label + ' failed:', e && e.code || e));
                 } catch (e) {
-                    console.warn('bumpChatUnread failed', e);
+                    console.warn('[chat] ' + label + ' threw:', e);
                 }
+            }
+
+            async function bumpChatUnread(kind, id, text) {
+                const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
+                const myName = (userProfile && (userProfile.name || userProfile.username)) || 'Someone';
+                const db = firebase.database();
+
+                if (kind === 'dm') {
+                    const other = id.split('_').find(u => u !== authUser.uid);
+                    if (!other)
+                        return;
+                    // Notification FIRST - it is the visible part.
+                    chatBestEffort(sendNotification(other, {
+                        title: myName,
+                        body: preview,
+                        type: 'chat'
+                    }), 'dm notification');
+                    chatBestEffort(db.ref('dmMeta/' + id).update({
+                        lastMsg: preview,
+                        lastAt: firebase.database.ServerValue.TIMESTAMP
+                    }), 'dmMeta update');
+                    chatBestEffort(db.ref('users/' + other + '/dms/' + id).update({
+                        with: authUser.uid
+                    }), 'dm index update');
+                    chatBestEffort(db.ref('users/' + other + '/dms/' + id + '/unread').transaction(c => (c || 0) + 1), 'dm unread');
+                    return;
+                }
+
+                let members = [];
+                let gname = 'Group';
+                try {
+                    const [snap,gs] = await Promise.all([db.ref('groups/' + id + '/members').once('value'), db.ref('groups/' + id + '/meta/name').once('value')]);
+                    members = Object.keys(snap.val() || {}).filter(u => u !== authUser.uid);
+                    gname = gs.val() || 'Group';
+                } catch (e) {
+                    console.warn('[chat] could not load group members:', e && e.code || e);
+                    return;
+                }
+                members.forEach(u => {
+                    chatBestEffort(sendNotification(u, {
+                        title: gname,
+                        body: myName + ': ' + preview,
+                        type: 'chat'
+                    }), 'group notification');
+                    chatBestEffort(db.ref('users/' + u + '/groupUnread/' + id).transaction(c => (c || 0) + 1), 'group unread');
+                }
+                );
             }
 
             function markChatRead(kind, id) {
@@ -9599,5 +9748,5 @@
             });
         </script>
         <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-    <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24fbd0c8a96aa6a',t:'MTc4NTcwMTU1Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+    <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a25034493f5b1eef',t:'MTc4NTcwNjQ0MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
