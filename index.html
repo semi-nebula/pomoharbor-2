@@ -1396,6 +1396,7 @@
                     </svg>
                     <span class="hidden xl:inline">PomoHarbor</span>
                 </h1>
+                <button id="header-nav-scroll-left" onclick="scrollHeaderNavLeft()" class="hidden lg:flex items-center justify-center w-5 h-5 mr-1 rounded-full custom-nav border text-[10px] font-bold text-muted-custom hover:text-white shrink-0" title="Previous tabs">❮</button>
                 <nav id="main-nav-tabs" class="hidden lg:flex items-center space-x-0.5 shrink-0 overflow-x-auto no-scrollbar scroll-smooth flex-1 min-w-0">
                     <button id="tab-stopwatch" onclick="switchTab('stopwatch')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow accent-text tab-active whitespace-nowrap">⏱️ Stopwatch</button>
                     <button id="tab-timer" onclick="switchTab('timer')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">⏳ Timer</button>
@@ -1405,7 +1406,7 @@
                     <button id="tab-flowtunes" onclick="switchTab('flowtunes')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">🎵 flowtunes</button>
                     <button id="tab-groups" onclick="switchTab('groups')" class="px-2 sm:px-2.5 lg:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition-all tab-glow text-muted-custom whitespace-nowrap">👥 Groups</button>
                 </nav>
-                <button id="header-nav-scroll-hint" onclick="scrollHeaderNavRight()" class="hidden lg:flex items-center justify-center w-5 h-5 ml-1 rounded-full custom-nav border text-[10px] font-bold text-muted-custom hover:text-white shrink-0" title="More tabs">❯</button>
+                <button id="header-nav-scroll-right" onclick="scrollHeaderNavRight()" class="hidden lg:flex items-center justify-center w-5 h-5 ml-1 rounded-full custom-nav border text-[10px] font-bold text-muted-custom hover:text-white shrink-0" title="More tabs">❯</button>
 
                 <!-- Mobile bottom nav: 4 tabs + More sheet -->
                 <nav id="mobile-nav-tabs" class="flex lg:hidden items-center shrink-0 no-scrollbar">
@@ -3724,11 +3725,21 @@
 
         function updateHeaderNavScrollHint() {
             const nav = document.getElementById('main-nav-tabs');
-            const hint = document.getElementById('header-nav-scroll-hint');
-            if (!nav || !hint) return;
+            const leftHint = document.getElementById('header-nav-scroll-left');
+            const rightHint = document.getElementById('header-nav-scroll-right');
+            if (!nav) return;
             const hasOverflow = nav.scrollWidth > nav.clientWidth + 2;
+            const atStart = nav.scrollLeft <= 2;
             const atEnd = nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 2;
-            hint.classList.toggle('hidden', !(hasOverflow && !atEnd));
+            if (leftHint) leftHint.classList.toggle('hidden', !(hasOverflow && !atStart));
+            if (rightHint) rightHint.classList.toggle('hidden', !(hasOverflow && !atEnd));
+        }
+
+        function scrollHeaderNavLeft() {
+            const nav = document.getElementById('main-nav-tabs');
+            if (!nav) return;
+            nav.scrollBy({ left: -120, behavior: 'smooth' });
+            setTimeout(updateHeaderNavScrollHint, 300);
         }
 
         function scrollHeaderNavRight() {
@@ -5123,11 +5134,20 @@
             if (raw) {
                 try {
                     const parsed = JSON.parse(raw);
+                    const savedDays = Array.isArray(parsed.days) ? parsed.days : [];
+                    const allDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                    // Keep saved order, then append any missing standard days.
+                    const mergedDays = [...savedDays];
+                    let changed = false;
+                    allDays.forEach(d => {
+                        if (!mergedDays.includes(d)) { mergedDays.push(d); changed = true; }
+                    });
                     scheduleState = {
-                        days: Array.isArray(parsed.days) ? parsed.days : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                        days: mergedDays,
                         slots: Array.isArray(parsed.slots) ? parsed.slots : [],
                         remindersEnabled: parsed.remindersEnabled !== false
                     };
+                    if (changed) saveSchedule();
                 } catch (e) {
                     scheduleState = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], slots: [], remindersEnabled: true };
                 }
@@ -7651,5 +7671,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24be207796a7e55',t:'MTc4NTY2MTEyOA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24c06623c40ac91',t:'MTc4NTY2MjYxNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
