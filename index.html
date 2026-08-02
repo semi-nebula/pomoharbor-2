@@ -1790,6 +1790,10 @@
                         <span id="desktop-add-label" class="whitespace-nowrap">New Timer</span>
                     </button>
                     <button onclick="cycleLayoutShortcut()" id="layout-shortcut-btn" class="header-icon-btn" title="Layout">田</button>
+                    <button onclick="openChatPanel()" class="header-icon-btn relative" title="Chat">
+                        💬
+                    <span id="chat-badge" class="hidden absolute -top-1 -right-1 min-w-[1rem] h-4 px-1 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center border border-[var(--bg-main)]">0</span>
+                    </button>
                     <button onclick="openNotificationsPanel()" class="header-icon-btn relative" title="Notifications">
                         🔔
                     <span id="notif-badge" class="hidden absolute -top-1 -right-1 min-w-[1rem] h-4 px-1 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center border border-[var(--bg-main)]">0</span>
@@ -1830,6 +1834,10 @@
                 <button type="button" data-action="search" class="mobile-more-item">
                     <span class="text-xl">🔍</span>
                     <span class="text-[10px] font-bold mt-1">Search</span>
+                </button>
+                <button type="button" data-action="chat" class="mobile-more-item">
+                    <span class="text-xl">💬</span>
+                    <span class="text-[10px] font-bold mt-1">Chat</span>
                 </button>
                 <button type="button" data-action="notifications" class="mobile-more-item">
                     <span class="text-xl">🔔</span>
@@ -2026,6 +2034,31 @@
                     </div>
                 </div>
                 <div id="notifications-list" class="space-y-2 overflow-y-auto pr-0.5" style="max-height: calc(100dvh - 13rem);"></div>
+            </div>
+        </div>
+        <div id="chat-panel-backdrop" onclick="closeChatPanel()" class="slide-over-backdrop"></div>
+        <div id="chat-panel" class="slide-over-panel">
+            <div class="panel-header">
+                <h3 class="panel-title" id="chat-panel-title">💬 Chat</h3>
+                <button onclick="closeChatPanel()" class="text-muted-custom hover:text-white text-lg leading-none">✕</button>
+            </div>
+            <div class="panel-content space-y-3">
+                <div id="chat-list-view" class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <button id="chat-tab-groups" onclick="setChatTab('groups')" class="flex-1 px-3 py-1.5 custom-btn text-[11px] rounded-xl font-bold">Groups</button>
+                        <button id="chat-tab-direct" onclick="setChatTab('direct')" class="flex-1 px-3 py-1.5 custom-nav border text-[11px] rounded-xl font-bold text-muted-custom hover:text-white">Direct</button>
+                    </div>
+                    <p class="text-[10px] text-muted-custom leading-snug">Messages are automatically deleted after 2 days.</p>
+                    <div id="chat-list" class="space-y-2 overflow-y-auto pr-0.5" style="max-height: calc(100dvh - 14rem);"></div>
+                </div>
+                <div id="chat-thread-view" class="hidden flex flex-col" style="height: calc(100dvh - 8rem);">
+                    <button onclick="closeChatThread()" class="self-start text-[11px] text-muted-custom hover:text-white mb-2">← Back</button>
+                    <div id="chat-messages" class="flex-1 overflow-y-auto pr-0.5 space-y-2 mb-2"></div>
+                    <div class="flex items-end gap-2 pt-2 border-t border-white/10">
+                        <textarea id="chat-input" rows="1" maxlength="2000" placeholder="Message..." oninput="autoGrowChatInput(this)" onkeydown="chatInputKeydown(event)" class="flex-1 custom-nav border rounded-xl px-3 py-2 text-xs outline-none resize-none max-h-24"></textarea>
+                        <button onclick="sendChatMessage()" class="px-3 py-2 custom-btn text-[11px] rounded-xl font-bold shrink-0">Send</button>
+                    </div>
+                </div>
             </div>
         </div>
         <!-- Main Content Container -->
@@ -2376,6 +2409,19 @@
             // Notifications state
             let notifications = [];
             let notificationsListener = null;
+            // --- Chat state ---
+            const CHAT_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
+            const CHAT_MAX_LEN = 2000;
+            const CHAT_SEND_COOLDOWN_MS = 800;
+            let chatTab = 'groups';
+            let chatOpenKind = null;
+            let chatOpenId = null;
+            let chatMessagesRef = null;
+            let chatMessagesHandler = null;
+            let chatUnreadRef = null;
+            let chatMessages = [];
+            let chatLastSentAt = 0;
+            let chatUnreadCounts = {};
             let notifiedNotificationIds = new Set();
 
             function usernameToEmail(username) {
@@ -4244,6 +4290,9 @@
                     case 'search':
                         openSearchPanel();
                         break;
+                    case 'chat':
+                        openChatPanel();
+                        break;
                     case 'notifications':
                         openNotificationsPanel();
                         break;
@@ -5645,6 +5694,7 @@
                         renderHeaderAvatar();
                         renderProfilePanel();
                         attachNotificationsListener(user.uid);
+                        attachChatUnreadListener(user.uid);
                         groupsUIRendered = false;
                         renderGroupsUI(true);
                         if (currentTab === 'groups')
@@ -5657,6 +5707,9 @@
                         renderHeaderAvatar();
                         renderProfilePanel();
                         detachNotificationsListener();
+                        detachChatListener();
+                        detachChatUnreadListener();
+                        closeChatPanel();
                         detachAllGroupListeners();
                         groupsUIRendered = false;
                         renderGroupsUI(true);
@@ -6943,7 +6996,10 @@
                                     <div class="text-[10px] text-muted-custom">@${escapeHtml(p.username)}</div>
                                 </div>
                             </div>
-                            <button onclick="event.stopPropagation(); removeFriend('${p.uid}')" class="text-[10px] text-muted-custom hover:text-red-400 px-1">🗑️</button>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick="event.stopPropagation(); openDmWith('${p.uid}')" class="text-[10px] text-muted-custom hover:text-white px-1" title="Message">💬</button>
+                                <button onclick="event.stopPropagation(); removeFriend('${p.uid}')" class="text-[10px] text-muted-custom hover:text-red-400 px-1">🗑️</button>
+                            </div>
                         </div>
                     `).join('');
                     }
@@ -8576,6 +8632,458 @@
 
             // --- Notifications system ---
 
+            // ============================================================
+            // CHAT SYSTEM  (group chat + 1-to-1 DMs)
+            //
+            // Retention: unlimited messages, every message expires 2 days
+            // after createdAt. RTDB has no TTL and scheduled Cloud Functions
+            // need the Blaze plan, so expiry is enforced in two layers:
+            //
+            //   Layer 1 (reliable)  - every listener queries startAt(cutoff),
+            //                         so expired messages are never displayed,
+            //                         whether or not they were deleted yet.
+            //   Layer 2 (best effort) - opening a thread sweeps anything past
+            //                         the cutoff out of the database.
+            //
+            // Net effect: messages always VANISH at exactly 48h; the actual
+            // delete happens the next time any participant opens the thread.
+            // ============================================================
+
+            function chatCutoff() {
+                return Date.now() - CHAT_RETENTION_MS;
+            }
+
+            // Deterministic conversation id for a pair of uids: sorting means
+            // both participants derive the same key with no lookup.
+            function dmIdFor(a, b) {
+                return [a, b].sort().join('_');
+            }
+
+            function chatPathFor(kind, id) {
+                return kind === 'group' ? 'groupMessages/' + id : 'dmMessages/' + id;
+            }
+
+            // Layer 2: delete everything already past the cutoff. Mirrors the
+            // pruneNotifications() pattern - one query, one multi-path update.
+            async function sweepExpiredMessages(kind, id) {
+                if (!firebase.database)
+                    return;
+                try {
+                    const path = chatPathFor(kind, id);
+                    const snap = await firebase.database().ref(path).orderByChild('createdAt').endAt(chatCutoff()).once('value');
+                    const updates = {};
+                    snap.forEach(child => {
+                        updates[child.key] = null;
+                    }
+                    );
+                    if (Object.keys(updates).length)
+                        await firebase.database().ref(path).update(updates);
+                } catch (e) {
+                    console.warn('sweepExpiredMessages failed', e);
+                }
+            }
+
+            function setChatTab(tab) {
+                chatTab = tab;
+                const g = document.getElementById('chat-tab-groups');
+                const d = document.getElementById('chat-tab-direct');
+                const on = 'flex-1 px-3 py-1.5 custom-btn text-[11px] rounded-xl font-bold';
+                const off = 'flex-1 px-3 py-1.5 custom-nav border text-[11px] rounded-xl font-bold text-muted-custom hover:text-white';
+                if (g)
+                    g.className = tab === 'groups' ? on : off;
+                if (d)
+                    d.className = tab === 'direct' ? on : off;
+                renderChatList();
+            }
+
+            function openChatPanel() {
+                const panel = document.getElementById('chat-panel');
+                const backdrop = document.getElementById('chat-panel-backdrop');
+                if (panel)
+                    panel.classList.add('open');
+                if (backdrop)
+                    backdrop.classList.add('open');
+                closeChatThread();
+                setChatTab(chatTab);
+            }
+
+            function closeChatPanel() {
+                const panel = document.getElementById('chat-panel');
+                const backdrop = document.getElementById('chat-panel-backdrop');
+                if (panel)
+                    panel.classList.remove('open');
+                if (backdrop)
+                    backdrop.classList.remove('open');
+                detachChatListener();
+            }
+
+            async function renderChatList() {
+                const list = document.getElementById('chat-list');
+                if (!list)
+                    return;
+                if (!authUser || !firebase.database) {
+                    list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">Sign in to use chat.</p>';
+                    return;
+                }
+                list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">Loading...</p>';
+                try {
+                    if (chatTab === 'groups') {
+                        const snap = await firebase.database().ref('users/' + authUser.uid + '/groups').once('value');
+                        const groups = snap.val() || {};
+                        const entries = Object.entries(groups);
+                        if (entries.length === 0) {
+                            list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">No groups yet.</p>';
+                            return;
+                        }
+                        list.innerHTML = entries.map( ([gid,meta]) => {
+                            const name = (meta && meta.name) || 'Group';
+                            const unread = chatUnreadCounts['group_' + gid] || 0;
+                            return `
+                            <div class="panel-menu-item flex items-center justify-between gap-2" onclick="openChatThread('group', ${jsArg(gid)}, ${jsArg(name)})">
+                                <span class="text-xs font-bold truncate">👥 ${escapeHtml(name)}</span>
+                                ${unread ? `<span class="min-w-[1rem] h-4 px-1 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center shrink-0">${unread > 9 ? '9+' : unread}</span>` : ''}
+                            </div>`;
+                        }
+                        ).join('');
+                    } else {
+                        const snap = await firebase.database().ref('users/' + authUser.uid + '/dms').once('value');
+                        const dms = snap.val() || {};
+                        const entries = Object.entries(dms);
+                        if (entries.length === 0) {
+                            list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">No conversations yet.<br>Open a friend from the Groups panel and tap 💬.</p>';
+                            return;
+                        }
+                        const profiles = await Promise.all(entries.map( ([dmId,meta]) => firebase.database().ref('users/' + meta.with + '/profile').once('value').then(ps => ({
+                            dmId,
+                            uid: meta.with,
+                            unread: meta.unread || 0,
+                            ...(ps.val() || {})
+                        }))));
+                        list.innerHTML = profiles.map(pr => {
+                            const nm = pr.name || pr.username || 'User';
+                            return `
+                            <div class="panel-menu-item flex items-center justify-between gap-2" onclick="openChatThread('dm', ${jsArg(pr.dmId)}, ${jsArg(nm)})">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <div class="profile-circle" style="background-color:${escapeHtml(pr.color || stringToColor(pr.username || 'u'))}; width:1.8rem; height:1.8rem; font-size:0.7rem;">${getInitials(nm)}</div>
+                                    <span class="text-xs font-bold truncate">${escapeHtml(nm)}</span>
+                                </div>
+                                ${pr.unread ? `<span class="min-w-[1rem] h-4 px-1 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center shrink-0">${pr.unread > 9 ? '9+' : pr.unread}</span>` : ''}
+                            </div>`;
+                        }
+                        ).join('');
+                    }
+                } catch (e) {
+                    console.warn('renderChatList failed', e);
+                    list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">Could not load chats.</p>';
+                }
+            }
+
+            // Opens (or creates) a DM with a friend, from the friends list.
+            async function openDmWith(uid) {
+                if (!authUser || !firebase.database || !uid)
+                    return;
+                const dmId = dmIdFor(authUser.uid, uid);
+                try {
+                    await firebase.database().ref('dmMeta/' + dmId + '/members').update({
+                        [authUser.uid]: true,
+                        [uid]: true
+                    });
+                    await firebase.database().ref('users/' + authUser.uid + '/dms/' + dmId).update({
+                        with: uid
+                    });
+                    const ps = await firebase.database().ref('users/' + uid + '/profile').once('value');
+                    const prof = ps.val() || {};
+                    chatTab = 'direct';
+                    openChatPanel();
+                    openChatThread('dm', dmId, prof.name || prof.username || 'User');
+                } catch (e) {
+                    console.warn('openDmWith failed', e);
+                    showToast('Could not open chat');
+                }
+            }
+
+            function openChatThread(kind, id, title) {
+                if (!authUser || !firebase.database)
+                    return;
+                detachChatListener();
+                chatOpenKind = kind;
+                chatOpenId = id;
+                chatMessages = [];
+                const listView = document.getElementById('chat-list-view');
+                const threadView = document.getElementById('chat-thread-view');
+                const titleEl = document.getElementById('chat-panel-title');
+                if (listView)
+                    listView.classList.add('hidden');
+                if (threadView)
+                    threadView.classList.remove('hidden');
+                if (titleEl)
+                    titleEl.innerText = title || 'Chat';
+                const box = document.getElementById('chat-messages');
+                if (box)
+                    box.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">Loading...</p>';
+
+                // Layer 2 sweep, then Layer 1 listener from the cutoff.
+                sweepExpiredMessages(kind, id);
+                markChatRead(kind, id);
+
+                const path = chatPathFor(kind, id);
+                chatMessagesRef = firebase.database().ref(path).orderByChild('createdAt').startAt(chatCutoff());
+                chatMessagesHandler = chatMessagesRef.on('child_added', (snap) => {
+                    const m = snap.val() || {};
+                    chatMessages.push({
+                        id: snap.key,
+                        ...m
+                    });
+                    renderChatMessages();
+                    markChatRead(kind, id);
+                }
+                , (err) => {
+                    console.warn('chat listener error', err);
+                    const b = document.getElementById('chat-messages');
+                    if (b)
+                        b.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">Could not load messages.</p>';
+                }
+                );
+            }
+
+            function closeChatThread() {
+                detachChatListener();
+                chatOpenKind = null;
+                chatOpenId = null;
+                chatMessages = [];
+                const listView = document.getElementById('chat-list-view');
+                const threadView = document.getElementById('chat-thread-view');
+                const titleEl = document.getElementById('chat-panel-title');
+                if (listView)
+                    listView.classList.remove('hidden');
+                if (threadView)
+                    threadView.classList.add('hidden');
+                if (titleEl)
+                    titleEl.innerText = '💬 Chat';
+                renderChatList();
+            }
+
+            function detachChatListener() {
+                if (chatMessagesRef && chatMessagesHandler) {
+                    try {
+                        chatMessagesRef.off('child_added', chatMessagesHandler);
+                    } catch (e) {}
+                }
+                chatMessagesRef = null;
+                chatMessagesHandler = null;
+            }
+
+            function renderChatMessages() {
+                const box = document.getElementById('chat-messages');
+                if (!box)
+                    return;
+                // Belt and braces: filter client-side too, so a message that
+                // ages out while the thread is open disappears on next render.
+                const cutoff = chatCutoff();
+                const visible = chatMessages.filter(m => (m.createdAt || 0) >= cutoff).sort( (a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+                if (visible.length === 0) {
+                    box.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">No messages yet.<br>Say hello 👋</p>';
+                    return;
+                }
+                const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+                box.innerHTML = visible.map(m => {
+                    const mine = m.uid === (authUser && authUser.uid);
+                    const who = mine ? 'You' : (m.name || 'User');
+                    const when = m.createdAt ? formatRelativeTime(m.createdAt) : '';
+                    const del = mine ? `<button onclick="deleteChatMessage(${jsArg(m.id)})" class="text-muted-custom hover:text-red-400 text-[10px] leading-none px-1 shrink-0" title="Delete">\u2715</button>` : '';
+                    return `
+                    <div class="custom-nav border rounded-xl px-3 py-2 ${mine ? 'ml-6' : 'mr-6'}">
+                        <div class="flex items-center justify-between gap-2 mb-0.5">
+                            <span class="text-[10px] font-bold ${mine ? 'accent-text' : 'text-muted-custom'}">${escapeHtml(who)}</span>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <span class="text-[10px] text-muted-custom">${when}</span>
+                                ${del}
+                            </div>
+                        </div>
+                        <p class="text-xs leading-snug break-words whitespace-pre-wrap">${escapeHtml(m.text || '')}</p>
+                    </div>`;
+                }
+                ).join('');
+                if (nearBottom)
+                    box.scrollTop = box.scrollHeight;
+            }
+
+            function autoGrowChatInput(el) {
+                el.style.height = 'auto';
+                el.style.height = Math.min(el.scrollHeight, 96) + 'px';
+            }
+
+            function chatInputKeydown(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            }
+
+            async function sendChatMessage() {
+                if (!authUser || !firebase.database || !chatOpenId)
+                    return;
+                const input = document.getElementById('chat-input');
+                if (!input)
+                    return;
+                const text = input.value.trim();
+                if (!text)
+                    return;
+                if (text.length > CHAT_MAX_LEN) {
+                    showToast('Message too long');
+                    return;
+                }
+                if (Date.now() - chatLastSentAt < CHAT_SEND_COOLDOWN_MS)
+                    return;
+                chatLastSentAt = Date.now();
+                input.value = '';
+                autoGrowChatInput(input);
+                const kind = chatOpenKind;
+                const id = chatOpenId;
+                try {
+                    await firebase.database().ref(chatPathFor(kind, id)).push().set({
+                        uid: authUser.uid,
+                        name: (userProfile && (userProfile.name || userProfile.username)) || 'User',
+                        text: text,
+                        createdAt: firebase.database.ServerValue.TIMESTAMP
+                    });
+                    await bumpChatUnread(kind, id, text);
+                } catch (e) {
+                    console.warn('sendChatMessage failed', e);
+                    showToast('Message failed to send');
+                    input.value = text;
+                }
+            }
+
+            // Raises the unread counter for everyone except the sender, and
+            // drops a bell notification so offline members find out.
+            async function bumpChatUnread(kind, id, text) {
+                try {
+                    const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
+                    const myName = (userProfile && (userProfile.name || userProfile.username)) || 'Someone';
+                    if (kind === 'dm') {
+                        const other = id.split('_').find(u => u !== authUser.uid);
+                        if (!other)
+                            return;
+                        await firebase.database().ref('dmMeta/' + id).update({
+                            lastMsg: preview,
+                            lastAt: firebase.database.ServerValue.TIMESTAMP
+                        });
+                        await firebase.database().ref('users/' + other + '/dms/' + id).update({
+                            with: authUser.uid
+                        });
+                        await firebase.database().ref('users/' + other + '/dms/' + id + '/unread').transaction(c => (c || 0) + 1);
+                        sendNotification(other, {
+                            title: myName,
+                            body: preview,
+                            type: 'chat'
+                        });
+                    } else {
+                        const snap = await firebase.database().ref('groups/' + id + '/members').once('value');
+                        const members = Object.keys(snap.val() || {}).filter(u => u !== authUser.uid);
+                        const gs = await firebase.database().ref('groups/' + id + '/meta/name').once('value');
+                        const gname = gs.val() || 'Group';
+                        members.forEach(u => {
+                            firebase.database().ref('users/' + u + '/groupUnread/' + id).transaction(c => (c || 0) + 1);
+                            sendNotification(u, {
+                                title: gname,
+                                body: myName + ': ' + preview,
+                                type: 'chat'
+                            });
+                        }
+                        );
+                    }
+                } catch (e) {
+                    console.warn('bumpChatUnread failed', e);
+                }
+            }
+
+            function markChatRead(kind, id) {
+                if (!authUser || !firebase.database)
+                    return;
+                const path = kind === 'dm' ? 'users/' + authUser.uid + '/dms/' + id + '/unread' : 'users/' + authUser.uid + '/groupUnread/' + id;
+                firebase.database().ref(path).set(0).catch( () => {}
+                );
+            }
+
+            async function deleteChatMessage(msgId) {
+                if (!authUser || !firebase.database || !chatOpenId || !msgId)
+                    return;
+                try {
+                    await firebase.database().ref(chatPathFor(chatOpenKind, chatOpenId) + '/' + msgId).remove();
+                    chatMessages = chatMessages.filter(m => m.id !== msgId);
+                    renderChatMessages();
+                } catch (e) {
+                    console.warn('deleteChatMessage failed', e);
+                    showToast('Could not delete message');
+                }
+            }
+
+            function updateChatBadge() {
+                const badge = document.getElementById('chat-badge');
+                if (!badge)
+                    return;
+                const total = Object.values(chatUnreadCounts).reduce( (a, b) => a + (b || 0), 0);
+                badge.classList.toggle('hidden', total === 0);
+                badge.innerText = total > 9 ? '9+' : String(total);
+            }
+
+            function attachChatUnreadListener(uid) {
+                if (!uid || !firebase.database)
+                    return;
+                detachChatUnreadListener();
+                chatUnreadRef = firebase.database().ref('users/' + uid);
+                const apply = () => {
+                    updateChatBadge();
+                    const lv = document.getElementById('chat-list-view');
+                    if (lv && !lv.classList.contains('hidden'))
+                        renderChatList();
+                }
+                ;
+                chatUnreadRef.child('dms').on('value', (snap) => {
+                    const val = snap.val() || {};
+                    Object.keys(chatUnreadCounts).forEach(k => {
+                        if (k.startsWith('dm_'))
+                            delete chatUnreadCounts[k];
+                    }
+                    );
+                    Object.entries(val).forEach( ([dmId,meta]) => {
+                        chatUnreadCounts['dm_' + dmId] = (meta && meta.unread) || 0;
+                    }
+                    );
+                    apply();
+                }
+                , () => {}
+                );
+                chatUnreadRef.child('groupUnread').on('value', (snap) => {
+                    const val = snap.val() || {};
+                    Object.keys(chatUnreadCounts).forEach(k => {
+                        if (k.startsWith('group_'))
+                            delete chatUnreadCounts[k];
+                    }
+                    );
+                    Object.entries(val).forEach( ([gid,n]) => {
+                        chatUnreadCounts['group_' + gid] = n || 0;
+                    }
+                    );
+                    apply();
+                }
+                , () => {}
+                );
+            }
+
+            function detachChatUnreadListener() {
+                if (chatUnreadRef) {
+                    try {
+                        chatUnreadRef.child('dms').off();
+                        chatUnreadRef.child('groupUnread').off();
+                    } catch (e) {}
+                }
+                chatUnreadRef = null;
+                chatUnreadCounts = {};
+                updateChatBadge();
+            }
+
             function attachNotificationsListener(uid) {
                 if (!uid || !firebase.database)
                     return;
@@ -9091,5 +9599,5 @@
             });
         </script>
         <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-    </body>
+    <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24fbd0c8a96aa6a',t:'MTc4NTcwMTU1Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
