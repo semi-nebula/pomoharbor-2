@@ -1101,6 +1101,35 @@
                 transition: border-color 0.2s ease, background-color 0.2s ease;
             }
 
+            /* Schedule rows are read at a glance, often on a phone, so they get
+               a larger type scale than the generic panel row. Kept as its own
+               class because .panel-menu-item is shared by 26 other menus. */
+            .schedule-slot-row {
+                padding: 0.9rem 1rem;
+                font-size: 0.95rem;
+                gap: 0.85rem;
+            }
+            .schedule-slot-row .slot-time {
+                font-size: 0.95rem;
+                letter-spacing: -0.01em;
+            }
+            .schedule-slot-row .slot-title {
+                font-size: 0.95rem;
+            }
+            .schedule-slot-row .slot-badge {
+                font-size: 0.95rem;
+            }
+            @media (min-width: 640px) {
+                .schedule-slot-row {
+                    padding: 1rem 1.15rem;
+                    font-size: 1rem;
+                }
+                .schedule-slot-row .slot-time,
+                .schedule-slot-row .slot-title {
+                    font-size: 1rem;
+                }
+            }
+
             .panel-menu-item:hover {
                 border-color: var(--accent-primary);
                 background-color: color-mix(in srgb, var(--bg-main) 84%, white 16%);
@@ -2388,8 +2417,12 @@
 
             // App version + changelog. Bump APP_VERSION whenever you ship a
             // notable update; the app can then highlight new entries.
-            const APP_VERSION = '1.4.0';
+            const APP_VERSION = '1.5.0';
             const CHANGELOG = [{
+                version: '1.5.0',
+                date: '2026-08-03',
+                items: ['Schedule slots can now be added to several days at once - tick the days you want instead of creating the same slot over and over.', 'Quick day presets: Mon-Fri, Sat-Sun, and Mon-Sun.', 'Editing a slot can copy it to more days; its own day always stays selected so it is never moved by accident.', 'New timetables now start with all seven days instead of Mon-Fri.', 'Bigger, easier to read schedule rows and day tabs.', 'Fixed chat notifications not arriving for new messages.', 'Fixed accepting friend requests and sending group invites.']
+            }, {
                 version: '1.4.0',
                 date: '2026-08-03',
                 items: ['New Chat: group chats and 1-to-1 direct messages with friends, with unread badges and notifications.', 'Chat messages are automatically deleted after 2 days.', 'Fixed being unexpectedly signed out shortly after logging in.', 'Fixed rooms being wrongly cleared while the app was still loading.', 'Timers now stay in sync across devices even when their clocks differ.', 'Scheduled timers can now be paused, reset, and deleted properly.', 'Scheduled timers only appear in the Timers tab on the day they belong to.', 'Up to 20 scheduled timers per day; scheduled timers no longer use up your manual timer slots.', 'Schedule reminders now also show in the in-app notification panel.', 'Header tab arrows scroll a full page of tabs instead of a single tab.', 'Tightened database security rules for accounts, friends, groups, and chat.']
@@ -6280,7 +6313,7 @@
                 if (tabsEl) {
                     tabsEl.innerHTML = scheduleState.days.map(day => {
                         const active = day === scheduleSelectedDay;
-                        return `<button onclick="selectScheduleDay('${day}')" class="px-3 py-1.5 text-[11px] font-bold rounded-xl whitespace-nowrap ${active ? 'custom-btn' : 'custom-nav border text-muted-custom hover:text-white'}">${day}</button>`;
+                        return `<button onclick="selectScheduleDay('${day}')" class="px-3.5 py-2 text-sm font-bold rounded-xl whitespace-nowrap ${active ? 'custom-btn' : 'custom-nav border text-muted-custom hover:text-white'}">${day}</button>`;
                     }
                     ).join('');
                 }
@@ -6317,16 +6350,16 @@
                         const cls = colorClasses[slot.color] || colorClasses.indigo;
                         const opacity = isPast ? 'opacity-50' : 'opacity-100';
                         const ring = isCurrent ? 'ring-2 ring-[var(--accent-primary)]' : '';
-                        const notifyBadge = slot.notify ? '<span class="text-[10px]">🔔</span>' : '';
-                        const timerBadge = slot.timerId ? '<span class="text-[10px]">⏱️</span>' : '';
-                        const startBtn = slot.timerId ? `<button onclick="event.stopPropagation(); startScheduleTimer('${slot.id}')" class="ml-2 px-2 py-1 custom-btn text-[10px] rounded-lg font-bold">Start</button>` : '';
+                        const notifyBadge = slot.notify ? '<span class="slot-badge">🔔</span>' : '';
+                        const timerBadge = slot.timerId ? '<span class="slot-badge">⏱️</span>' : '';
+                        const startBtn = slot.timerId ? `<button onclick="event.stopPropagation(); startScheduleTimer('${slot.id}')" class="ml-2 px-3 py-1.5 custom-btn text-xs rounded-lg font-bold">Start</button>` : '';
                         return `
-                        <div onclick="openScheduleSlotModal('${slot.id}')" class="panel-menu-item justify-between ${opacity} ${ring} ${cls} border cursor-pointer">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <div class="text-xs font-bold mono whitespace-nowrap">${formatTime12(startMin)} – ${formatTime12(endMin)}</div>
-                                <div class="text-xs font-semibold truncate">${escapeHtml(slot.title || 'Untitled')}</div>
+                        <div onclick="openScheduleSlotModal('${slot.id}')" class="panel-menu-item schedule-slot-row justify-between ${opacity} ${ring} ${cls} border cursor-pointer">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <div class="slot-time font-bold mono whitespace-nowrap">${formatTime12(startMin)} – ${formatTime12(endMin)}</div>
+                                <div class="slot-title font-semibold truncate">${escapeHtml(slot.title || 'Untitled')}</div>
                             </div>
-                            <div class="flex items-center gap-1.5 shrink-0">${notifyBadge}${timerBadge}${startBtn}</div>
+                            <div class="flex items-center gap-2 shrink-0">${notifyBadge}${timerBadge}${startBtn}</div>
                         </div>
                     `;
                     }
@@ -9748,5 +9781,5 @@
             });
         </script>
         <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-    <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a25034493f5b1eef',t:'MTc4NTcwNjQ0MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+    <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2504612ec7fad8b',t:'MTc4NTcwNzE2OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
