@@ -2111,6 +2111,66 @@
         let notifications = [];
         let notificationsListener = null;
         let notifiedNotificationIds = new Set();
+        let scheduleNotifications = [];
+        const SCHEDULE_NOTIFICATIONS_KEY = roomKey('pomoharbor_schedule_notifications');
+
+        function loadScheduleNotifications() {
+            try {
+                const raw = localStorage.getItem(SCHEDULE_NOTIFICATIONS_KEY);
+                scheduleNotifications = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(scheduleNotifications)) scheduleNotifications = [];
+            } catch (e) {
+                scheduleNotifications = [];
+            }
+        }
+
+        function saveScheduleNotifications() {
+            try {
+                localStorage.setItem(SCHEDULE_NOTIFICATIONS_KEY, JSON.stringify(scheduleNotifications.slice(0, 50)));
+            } catch (e) { console.warn(e); }
+        }
+
+        function addScheduleNotification(slot) {
+            const id = 'sch_notif_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            const notif = {
+                id,
+                type: 'schedule_reminder',
+                title: 'Up next: ' + (slot.title || 'Scheduled slot'),
+                body: `${slot.day} ${slot.start} – ${slot.end}`,
+                slotId: slot.id,
+                read: false,
+                createdAt: Date.now()
+            };
+            scheduleNotifications.unshift(notif);
+            saveScheduleNotifications();
+            renderNotificationsPanel();
+            updateNotificationBadge();
+        }
+
+        function deleteScheduleNotification(id) {
+            scheduleNotifications = scheduleNotifications.filter(n => n.id !== id);
+            saveScheduleNotifications();
+            renderNotificationsPanel();
+            updateNotificationBadge();
+        }
+
+        function markScheduleNotificationRead(id) {
+            const n = scheduleNotifications.find(x => x.id === id);
+            if (n) { n.read = true; saveScheduleNotifications(); renderNotificationsPanel(); updateNotificationBadge(); }
+        }
+
+        function markAllScheduleNotificationsRead() {
+            let changed = false;
+            scheduleNotifications.forEach(n => { if (!n.read) { n.read = true; changed = true; } });
+            if (changed) { saveScheduleNotifications(); renderNotificationsPanel(); updateNotificationBadge(); }
+        }
+
+        function clearAllScheduleNotifications() {
+            scheduleNotifications = [];
+            saveScheduleNotifications();
+            renderNotificationsPanel();
+            updateNotificationBadge();
+        }
 
         function usernameToEmail(username) {
             return username.toLowerCase().trim() + '@pomoharbor.local';
@@ -5486,6 +5546,7 @@
                         const title = 'Up next: ' + (slot.title || 'Scheduled slot');
                         triggerDesktopNotification('PomoHarbor', title);
                         showToast(title);
+                        addScheduleNotification(slot);
                         if (slot.timerId) {
                             startScheduleTimer(slot.id);
                         }
@@ -7374,29 +7435,37 @@ function exportRoomData() {
         }
 
         async function deleteAllNotifications() {
-            if (!authUser || !firebase.database || notifications.length === 0) return;
             if (!confirm('Clear all notifications?')) return;
-            const updates = {};
-            notifications.forEach(n => { updates['users/' + authUser.uid + '/notifications/' + n.id] = null; });
-            try { await firebase.database().ref().update(updates); } catch (e) { console.warn(e); }
+            if (authUser && firebase.database && notifications.length > 0) {
+                const updates = {};
+                notifications.forEach(n => { updates['users/' + authUser.uid + '/notifications/' + n.id] = null; });
+                try { await firebase.database().ref().update(updates); } catch (e) { console.warn(e); }
+            }
+            if (scheduleNotifications.length > 0) clearAllScheduleNotifications();
         }
 
         function markNotificationRead(id) {
+            if (id && id.startsWith('sch_notif_')) {
+                markScheduleNotificationRead(id);
+                return;
+            }
             if (!authUser || !firebase.database || !id) return;
             firebase.database().ref('users/' + authUser.uid + '/notifications/' + id + '/read').set(true).catch(() => {});
         }
 
         function markAllNotificationsRead() {
-            if (!authUser || !firebase.database || notifications.length === 0) return;
-            const updates = {};
-            notifications.forEach(n => { if (!n.read) updates['users/' + authUser.uid + '/notifications/' + n.id + '/read'] = true; });
-            firebase.database().ref().update(updates).catch(() => {});
+            if (authUser && firebase.database && notifications.length > 0) {
+                const updates = {};
+                notifications.forEach(n => { if (!n.read) updates['users/' + authUser.uid + '/notifications/' + n.id + '/read'] = true; });
+                firebase.database().ref().update(updates).catch(() => {});
+            }
+            markAllScheduleNotificationsRead();
         }
 
         function updateNotificationBadge() {
             const badge = document.getElementById('notif-badge');
             if (!badge) return;
-            const unread = notifications.filter(n => !n.read).length;
+            const unread = notifications.filter(n => !n.read).length + scheduleNotifications.filter(n => !n.read).length;
             badge.classList.toggle('hidden', unread === 0);
             badge.innerText = unread > 9 ? '9+' : String(unread);
         }
@@ -7438,19 +7507,17 @@ function exportRoomData() {
                 }
             }
             if (!list) return;
-            if (!authUser) {
-                list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">Sign in to see notifications.</p>';
-                return;
-            }
-            if (notifications.length === 0) {
+            const merged = [...notifications, ...scheduleNotifications].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            if (merged.length === 0) {
                 list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">No notifications yet.</p>';
                 return;
             }
-            list.innerHTML = notifications.map(n => renderNotificationItem(n)).join('');
+            list.innerHTML = merged.map(n => renderNotificationItem(n)).join('');
         }
 
         function renderNotificationItem(n) {
             let actionHtml = '';
+            const isSchedule = n.type === 'schedule_reminder';
             if (n.type === 'friend_request' && n.fromUid) {
                 actionHtml = `
                     <div class="flex gap-2 mt-2 w-full">
@@ -7463,16 +7530,23 @@ function exportRoomData() {
                         <button onclick="event.stopPropagation(); acceptGroupInvite('${n.groupId}', '${n.id}');" class="flex-1 py-1.5 custom-btn text-[10px] rounded-lg font-bold">Join</button>
                         <button onclick="event.stopPropagation(); declineGroupInvite('${n.groupId}', '${n.id}');" class="flex-1 py-1.5 custom-nav border text-[10px] rounded-lg font-bold text-muted-custom hover:text-white">Decline</button>
                     </div>`;
+            } else if (isSchedule && n.slotId) {
+                actionHtml = `
+                    <div class="flex gap-2 mt-2 w-full">
+                        <button onclick="event.stopPropagation(); switchTab('schedule'); selectScheduleDay('${scheduleState.slots.find(s => s.id === n.slotId)?.day || 'Mon'}');" class="flex-1 py-1.5 custom-btn text-[10px] rounded-lg font-bold">View Schedule</button>
+                    </div>`;
             }
             const timeText = n.createdAt ? formatRelativeTime(n.createdAt) : '';
             const unreadClass = n.read ? 'opacity-70' : 'border-l-2 border-[var(--accent-primary)]';
+            const markRead = isSchedule ? `markScheduleNotificationRead('${n.id}')` : `markNotificationRead('${n.id}')`;
+            const del = isSchedule ? `deleteScheduleNotification('${n.id}')` : `deleteNotification('${n.id}')`;
             return `
-                <div class="panel-menu-item flex-col items-start gap-1 ${unreadClass}" onclick="markNotificationRead('${n.id}')">
+                <div class="panel-menu-item flex-col items-start gap-1 ${unreadClass}" onclick="${markRead}">
                     <div class="flex justify-between w-full items-start gap-2">
                         <span class="text-xs font-bold">${escapeHtml(n.title || 'Notification')}</span>
                         <div class="flex items-center gap-1.5 shrink-0">
                             <span class="text-[10px] text-muted-custom">${timeText}</span>
-                            <button onclick="event.stopPropagation(); deleteNotification('${n.id}');" class="text-muted-custom hover:text-red-400 text-[10px] leading-none px-1" title="Delete">✕</button>
+                            <button onclick="event.stopPropagation(); ${del};" class="text-muted-custom hover:text-red-400 text-[10px] leading-none px-1" title="Delete">✕</button>
                         </div>
                     </div>
                     <p class="text-[11px] text-muted-custom leading-snug">${escapeHtml(n.body || '')}</p>
@@ -7634,6 +7708,7 @@ function exportRoomData() {
 
         // Always runs, regardless of whether Cloud Sync above succeeded.
         loadSchedule();
+        loadScheduleNotifications();
         startScheduleReminderLoop();
         render();
         updateMobileNavActiveState(currentTab);
@@ -7671,5 +7746,5 @@ function exportRoomData() {
         });
     </script>
     <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24c06623c40ac91',t:'MTc4NTY2MjYxNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24c34d0ec89162e',t:'MTc4NTY2NDUxOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
