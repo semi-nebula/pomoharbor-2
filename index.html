@@ -2208,7 +2208,7 @@
                             <div id="auth-profile-circle" class="profile-circle">?</div>
                             <div>
                                 <div id="auth-display-name" class="text-sm font-bold">User</div>
-                                <div id="auth-username" class="text-[11px] text-muted-custom">@user</div>
+                                <div id="auth-username-display" class="text-[11px] text-muted-custom">@user</div>
                             </div>
                         </div>
                         <button onclick="logout()" class="px-3 py-1.5 custom-nav border text-[11px] rounded-xl font-bold text-muted-custom hover:text-white">Log Out</button>
@@ -2304,12 +2304,41 @@
             let roomStateRef = null;
             let roomMetaRef = null;
             const SYNC_CLIENT_ID = 'c_' + Math.random().toString(36).slice(2) + '_' + Date.now();
+
+            // --- Shared clock -------------------------------------------------
+            // Device clocks disagree (phones and laptops are routinely seconds
+            // apart). Timer state is shared across devices as an absolute
+            // `startTime`, so if one device writes its own Date.now() and
+            // another subtracts ITS Date.now(), the difference between the two
+            // clocks shows up as bogus elapsed time.
+            //
+            // Firebase publishes the difference between this device's clock and
+            // its server clock at `.info/serverTimeOffset`. Adding that offset
+            // gives every device the SAME notion of "now", so a stopwatch reads
+            // identically everywhere. Falls back to Date.now() when offline,
+            // which is exactly the old behaviour.
+            let serverTimeOffset = 0;
+
+            function serverNow() {
+                return Date.now() + serverTimeOffset;
+            }
             // ============================================================
             // SOCIAL / GROUPS STATE
             // ============================================================
             let authUser = null;
             let userProfile = null;
             let isHandlingAuth = false;
+            let profileLoadFailed = false;
+
+            // "Remember me" was read three different ways: === 'true' at startup,
+            // !== 'false' in logout(), and === 'true' for the checkbox. With the
+            // key unset (every first-time login) those disagree, so the user got
+            // SESSION persistence despite the box being ticked - and was asked to
+            // sign in again on the next browser launch. One reader, defaulting to
+            // true so it matches the checked-by-default checkbox.
+            function isRememberMeEnabled() {
+                return localStorage.getItem('pomoharbor_remember_me') !== 'false';
+            }
             let groupsUIRendered = false;
             let lastGroupsAuthState = null;
             let myPublicStateRef = null;
@@ -2400,6 +2429,35 @@
             if (!ROOM_ID) {
                 ROOM_ID = generateRoomId();
                 history.replaceState(null, '', '#' + ROOM_ID);
+                // Record that WE created this hash, so a later load can tell an
+                // auto-generated scratch room apart from a room link the user
+                // actually pasted. Without this every reload/bookmark/PWA launch
+                // looks like "deliberately opened someone else's room" and the
+                // auth handler signs the user out.
+                try {
+                    sessionStorage.setItem('pomoharbor_autoroom_' + ROOM_ID, '1');
+                    // sessionStorage is wiped when the browser closes, which is
+                    // precisely the bookmark / installed-PWA case we must survive,
+                    // so persist it as well. Keep the list bounded.
+                    localStorage.setItem('pomoharbor_autoroom_' + ROOM_ID, '1');
+                    const known = Object.keys(localStorage).filter(k => k.indexOf('pomoharbor_autoroom_') === 0);
+                    if (known.length > 25)
+                        known.slice(0, known.length - 25).forEach(k => localStorage.removeItem(k));
+                } catch (e) {}
+            }
+
+            // True only when the user genuinely arrived with someone else's room
+            // link, rather than a hash this app generated for them earlier.
+            function isPastedRoomHash() {
+                if (!INITIAL_HASH)
+                    return false;
+                try {
+                    if (sessionStorage.getItem('pomoharbor_autoroom_' + INITIAL_HASH) === '1')
+                        return false;
+                    if (localStorage.getItem('pomoharbor_autoroom_' + INITIAL_HASH) === '1')
+                        return false;
+                } catch (e) {}
+                return true;
             }
 
             // Every local save/load in the app goes through this so each room
@@ -2551,6 +2609,13 @@
             }
             loadPrivateMode();
 
+            // True once onAuthStateChanged has run at least once, so callers can
+            // tell "not logged in" apart from "we don't know yet".
+            let authStateResolved = false;
+            // Set from rooms/<id>/meta/ownerUid: if a room belongs to an account
+            // it must never be auto-deleted, regardless of auth timing.
+            let currentRoomOwnerUid = null;
+
             function isRemoteStale(remote) {
                 const ts = remote && (remote.updatedAt || remote.lastActiveAt);
                 if (!ts)
@@ -2558,7 +2623,45 @@
                 return Date.now() - ts > ROOM_TTL_MS;
             }
 
-            function cleanupCurrentRoomAndRedirect() {
+            // A room may only be auto-cleaned when ALL of these hold:
+            //   - auth has actually resolved (not merely "still loading"), and
+            //   - the room has no recorded owner, and
+            //   - it is not the signed-in user's own home room.
+            // Any uncertainty means we keep the room. Deleting user data is
+            // irreversible, so this deliberately fails safe.
+            function mayAutoCleanRoom() {
+                if (!authStateResolved)
+                    return false;
+                if (currentRoomOwnerUid)
+                    return false;
+                if (authUser && userProfile && ROOM_ID === userProfile.roomId)
+                    return false;
+                if (authUser && ROOM_ID === authUser.uid)
+                    return false;
+                return true;
+            }
+
+            async function cleanupCurrentRoomAndRedirect() {
+                // Final safety net. This function permanently deletes a room, so
+                // re-check ownership against the server first rather than trusting
+                // in-memory state that may not have loaded yet. If the room turns
+                // out to be owned, leave the data alone and just move the user to
+                // a fresh room instead of destroying anything.
+                try {
+                    if (firebase.database) {
+                        const ownerSnap = await firebase.database().ref('rooms/' + ROOM_ID + '/meta/ownerUid').once('value');
+                        if (ownerSnap.exists()) {
+                            console.warn('[Room] Refusing to auto-delete an owned room:', ROOM_ID);
+                            redirectToHash(generateRoomId());
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // Could not verify ownership -> assume it IS owned and keep it.
+                    console.warn('[Room] Ownership check failed; not deleting.', e);
+                    redirectToHash(generateRoomId());
+                    return;
+                }
                 if (roomRef)
                     roomRef.remove().catch( () => {}
                     );
@@ -3659,6 +3762,37 @@
                 }
             }
 
+            // Routes an app-generated event into the in-app notification centre
+            // (bell panel + unread badge) as well as the desktop notification.
+            // When signed in we write to Firebase so the entry survives the
+            // realtime listener overwriting the local `notifications` array;
+            // otherwise we push a local-only entry.
+            function addAppNotification(title, body, type) {
+                if (authUser && firebase.database) {
+                    sendNotification(authUser.uid, {
+                        title: title,
+                        body: body || '',
+                        type: type || 'system'
+                    });
+                    return;
+                }
+                notifications.unshift({
+                    id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+                    title: title,
+                    body: body || '',
+                    type: type || 'system',
+                    read: false,
+                    createdAt: Date.now(),
+                    local: true
+                });
+                if (notifications.length > 50)
+                    notifications.length = 50;
+                updateNotificationBadge();
+                renderNotificationsPanel();
+                triggerDesktopNotification(title, body || '');
+                showToast(title);
+            }
+
             function triggerAlarmSequence() {
                 playAlarmSound();
                 if (userSettings.repeatAlarm) {
@@ -3863,7 +3997,7 @@
                 if (!timer.running)
                     return;
 
-                let currentElapsed = timer.elapsed + (Date.now() - timer.startTime);
+                let currentElapsed = timer.elapsed + (serverNow() - timer.startTime);
 
                 if (currentElapsed >= EIGHT_HOURS_MS && !timer.nudge8hShown) {
                     timer.nudge8hShown = true;
@@ -4305,10 +4439,10 @@
             function togglePomodoro() {
                 unlockAudio();
                 if (pomodoroState.running) {
-                    pomodoroState.elapsed += Date.now() - pomodoroState.startTime;
+                    pomodoroState.elapsed += serverNow() - pomodoroState.startTime;
                     pomodoroState.running = false;
                 } else {
-                    pomodoroState.startTime = Date.now();
+                    pomodoroState.startTime = serverNow();
                     pomodoroState.running = true;
                 }
                 savePomo();
@@ -4319,7 +4453,7 @@
             function pauseOrResetPomodoro() {
                 unlockAudio();
                 if (pomodoroState.running) {
-                    pomodoroState.elapsed += Date.now() - pomodoroState.startTime;
+                    pomodoroState.elapsed += serverNow() - pomodoroState.startTime;
                     pomodoroState.running = false;
                 } else {
                     if (pomodoroState.elapsed > 0 && confirm('Reset the current Pomodoro session?')) {
@@ -4541,7 +4675,7 @@
                     openScheduleSlotModal();
                     return;
                 }
-                const count = timers.filter(t => (t.type || 'stopwatch') === currentTab).length;
+                const count = manualTimerCount(currentTab);
                 if (count >= MAX_LIMIT) {
                     const limitTypeEl = document.getElementById('limit-type-text');
                     if (limitTypeEl)
@@ -4613,7 +4747,7 @@
                     return;
                 }
 
-                const items = timers.filter(t => (t.type || 'stopwatch') === currentTab);
+                const items = visibleTimersForTab(currentTab);
                 if (items.length === 0) {
                     bar.style.display = 'none';
                     bar.innerHTML = '';
@@ -4621,11 +4755,11 @@
                 }
 
                 bar.style.display = 'flex';
-                bar.innerHTML = items.map( (t, i) => `<button type="button" onclick="jumpToTimer(${t.id})" title="${escapeHtml(t.title || ('Item ' + (i + 1)))}" class="quick-jump-btn">${i + 1}</button>`).join('');
+                bar.innerHTML = items.map( (t, i) => `<button type="button" onclick="jumpToTimer(${jsArg(t.id)})" title="${escapeHtml(t.title || ('Item ' + (i + 1)))}" class="quick-jump-btn">${i + 1}</button>`).join('');
             }
 
             function addPresetTimer(minutes, title) {
-                const count = timers.filter(t => (t.type || 'stopwatch') === 'timer').length;
+                const count = manualTimerCount('timer');
                 if (count >= MAX_LIMIT) {
                     const limitTypeEl = document.getElementById('limit-type-text');
                     if (limitTypeEl)
@@ -4658,7 +4792,7 @@
                 const timer = timers.find(t => t.id === id);
                 if (timer) {
                     if (timer.running) {
-                        let now = Date.now();
+                        let now = serverNow();
                         logSessionToJournal(timer.title, timer.category, timer.startTime, now);
                         timer.elapsed += now - timer.startTime;
                         timer.running = false;
@@ -4666,7 +4800,7 @@
                         if (timer.type === 'timer' && timer.elapsed >= timer.durationMs)
                             timer.elapsed = 0;
                         timer.finished = false;
-                        timer.startTime = Date.now();
+                        timer.startTime = serverNow();
                         timer.running = true;
                         if (!timers.some(t => t.finished))
                             stopAlarmLoop();
@@ -4792,7 +4926,7 @@
                     let currentTarget = pomodoroState.mode === 'work' ? pomodoroState.workTime : (pomodoroState.mode === 'shortBreak' ? pomodoroState.shortBreakTime : pomodoroState.longBreakTime);
                     let elapsed = pomodoroState.elapsed;
                     if (pomodoroState.running)
-                        elapsed += Date.now() - pomodoroState.startTime;
+                        elapsed += serverNow() - pomodoroState.startTime;
                     let remaining = Math.max(0, currentTarget - elapsed);
                     document.getElementById('pomo-display').innerText = formatPomoTime(remaining);
                 } else if (currentTab !== 'flowtunes' && currentTab !== 'journal') {
@@ -4812,7 +4946,7 @@
             function calculateDisplayTime(timer) {
                 let elapsed = timer.elapsed;
                 if (timer.running)
-                    elapsed += Date.now() - timer.startTime;
+                    elapsed += serverNow() - timer.startTime;
                 return timer.type === 'timer' ? Math.max(0, timer.durationMs - elapsed) : elapsed;
             }
 
@@ -4950,7 +5084,7 @@
 
                 grid.classList.remove('hidden');
 
-                const activeItems = timers.filter(t => (t.type || 'stopwatch') === currentTab);
+                const activeItems = visibleTimersForTab(currentTab);
                 if (activeItems.length === 0) {
                     emptyState.classList.remove('hidden');
                     grid.innerHTML = '';
@@ -4965,6 +5099,39 @@
             // extracted so a single card can be regenerated without rebuilding
             // every other card in the grid. Identical output either way - only
             // how much of the grid gets touched changes.
+            // A timer created from a schedule slot belongs to that slot's day.
+            // It should only appear in the Timers tab on that weekday; every
+            // other (manually created) timer is always visible.
+            // Produces an attribute-safe JS literal for an id used inside an
+            // inline on* handler. Numbers pass through bare; strings get SINGLE
+            // quotes (double quotes would terminate the onclick="..." attribute).
+            function jsArg(v) {
+                if (typeof v === 'number')
+                    return String(v);
+                return "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+            }
+
+            function isTimerVisibleToday(t) {
+                if (!t || !t.scheduleDay)
+                    return true;
+                if (t.running || t.finished || (t.elapsed || 0) > 0)
+                    return true;
+                return t.scheduleDay === getTodayScheduleDay();
+            }
+
+            function visibleTimersForTab(tab) {
+                return timers.filter(t => (t.type || 'stopwatch') === tab && isTimerVisibleToday(t));
+            }
+
+            // MAX_LIMIT applies only to timers the user creates by hand. Timers
+            // owned by a schedule slot are managed from the Schedule tab (and are
+            // hidden on other weekdays), so counting them here would let a full
+            // week of slots lock the user out of the "+" button while the Timers
+            // tab looks empty.
+            function manualTimerCount(tab) {
+                return timers.filter(t => (t.type || 'stopwatch') === tab && !t.scheduleSlotId).length;
+            }
+
             function renderTimerCardHTML(timer) {
                 const fontClass = userSettings.fontStyle === 'digital' ? 'digital-font' : 'mono';
                 const isCompact = userSettings.compactView;
@@ -4974,23 +5141,29 @@
                 let displayTime = calculateDisplayTime(timer);
                 let isEditing = editingTimerId === timer.id;
                 let {h, m, s} = getHMS(timer.durationMs);
+                // Schedule-created timers use string ids ('tmr_...'), manual ones
+                // use numeric ids. Interpolating a string id bare produced
+                // toggleTimer(tmr_1_a) -> ReferenceError, which silently broke
+                // pause/reset/delete on every scheduled timer. JSON.stringify
+                // yields a valid literal for both shapes.
+                const tid = jsArg(timer.id);
 
                 return `
                 <div id="timer-card-${timer.id}" class="custom-card ${timer.finished ? 'timer-finished' : ''} rounded-3xl ${cardPadding} flex flex-col justify-between relative overflow-hidden">
                     <div>
                         <div class="flex justify-between items-center ${isCompact ? 'mb-2' : 'mb-3'}">
                             <div class="flex items-center space-x-2 w-8/12 group">
-                                <input type="text" value="${escapeHtml(timer.title)}" onchange="timers.find(t=>t.id===${timer.id}).title=this.value; save();" class="timer-card-title bg-transparent font-bold outline-none w-full ${isCompact ? 'text-[10px]' : 'text-xs'} tracking-wider uppercase text-muted-custom border-b border-transparent focus:border-current hover:border-white/20 transition" placeholder="Rename title..." />
+                                <input type="text" value="${escapeHtml(timer.title)}" onchange="timers.find(t=>t.id===${tid}).title=this.value; save();" class="timer-card-title bg-transparent font-bold outline-none w-full ${isCompact ? 'text-[10px]' : 'text-xs'} tracking-wider uppercase text-muted-custom border-b border-transparent focus:border-current hover:border-white/20 transition" placeholder="Rename title..." />
                             </div>
                             <div class="flex items-center space-x-1">
-                                <select onchange="timers.find(t=>t.id===${timer.id}).category=this.value; save();" class="timer-card-category bg-transparent ${isCompact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] lg:text-sm px-1.5 lg:px-2.5 py-0.5 lg:py-1.5'} text-muted-custom font-semibold outline-none cursor-pointer border rounded-lg lg:rounded-xl border-white/10 hover:border-white/20">
+                                <select onchange="timers.find(t=>t.id===${tid}).category=this.value; save();" class="timer-card-category bg-transparent ${isCompact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] lg:text-sm px-1.5 lg:px-2.5 py-0.5 lg:py-1.5'} text-muted-custom font-semibold outline-none cursor-pointer border rounded-lg lg:rounded-xl border-white/10 hover:border-white/20">
                                     <option value="General" ${timer.category === 'General' ? 'selected' : ''}>General</option>
                                     <option value="Study" ${timer.category === 'Study' ? 'selected' : ''}>Study</option>
                                     <option value="Work" ${timer.category === 'Work' ? 'selected' : ''}>Work</option>
                                     <option value="Fitness" ${timer.category === 'Fitness' ? 'selected' : ''}>Fitness</option>
                                     <option value="Others" ${timer.category === 'Others' ? 'selected' : ''}>Others</option>
                                 </select>
-                                <button onclick="removeTimer(${timer.id})" class="p-1 opacity-40 hover:opacity-100 hover:text-red-400 text-xs transition">🗑️</button>
+                                <button onclick="removeTimer(${tid})" class="p-1 opacity-40 hover:opacity-100 hover:text-red-400 text-xs transition">🗑️</button>
                             </div>
                         </div>
 
@@ -5003,10 +5176,10 @@
                                     <input id="input-m-${timer.id}" type="number" value="${m}" class="${isCompact ? 'w-8 sm:w-10' : 'w-10 sm:w-12'} custom-nav text-center border rounded-xl py-1 outline-none" />:
                                     <input id="input-s-${timer.id}" type="number" value="${s}" class="${isCompact ? 'w-8 sm:w-10' : 'w-10 sm:w-12'} custom-nav text-center border rounded-xl py-1 outline-none" />
                                 </div>
-                                <button onclick="saveTimerDuration(${timer.id})" class="${isCompact ? 'px-4 py-1 text-[10px]' : 'px-5 py-1.5 text-xs'} custom-btn rounded-xl">Save</button>
+                                <button onclick="saveTimerDuration(${tid})" class="${isCompact ? 'px-4 py-1 text-[10px]' : 'px-5 py-1.5 text-xs'} custom-btn rounded-xl">Save</button>
                             </div>
                         ` : `
-                            <div id="time-display-${timer.id}" onclick="${timer.type === 'timer' && !timer.running ? `openEdit(${timer.id})` : ''}" class="${fontClass} ${timeSize} font-semibold tracking-tight ${isCompact ? 'mb-2 sm:mb-3' : 'mb-4 sm:mb-5'} ${timer.finished ? 'text-red-400 font-extrabold' : ''} ${timer.type === 'timer' && !timer.running ? 'cursor-pointer hover:opacity-70 transition' : ''}">
+                            <div id="time-display-${timer.id}" onclick="${timer.type === 'timer' && !timer.running ? `openEdit(${tid})` : ''}" class="${fontClass} ${timeSize} font-semibold tracking-tight ${isCompact ? 'mb-2 sm:mb-3' : 'mb-4 sm:mb-5'} ${timer.finished ? 'text-red-400 font-extrabold' : ''} ${timer.type === 'timer' && !timer.running ? 'cursor-pointer hover:opacity-70 transition' : ''}">
                                 ${formatTime(displayTime)}
                             </div>
                         `}
@@ -5019,7 +5192,7 @@
                     const lapId = typeof lap === 'object' ? lap.id : Date.now();
                     return `
                                         <div class="flex justify-between items-center text-muted-custom px-2 py-1 hover:bg-white/5 rounded-xl transition">
-                                            <input type="text" value="${escapeHtml(lapName)}" onchange="renameLap(${timer.id}, ${lapId}, this.value)" class="bg-transparent text-muted-custom focus:text-white font-medium outline-none border-b border-transparent focus:border-current w-1/2" placeholder="Split name..." />
+                                            <input type="text" value="${escapeHtml(lapName)}" onchange="renameLap(${tid}, ${jsArg(lapId)}, this.value)" class="bg-transparent text-muted-custom focus:text-white font-medium outline-none border-b border-transparent focus:border-current w-1/2" placeholder="Split name..." />
                                             <span class="accent-text font-bold">${formatLapTime(lapTime)}</span>
                                         </div>
                                     `;
@@ -5030,15 +5203,15 @@
                     </div>
 
                     <div class="flex gap-2 mt-2">
-                        <button onclick="toggleTimer(${timer.id})" class="timer-action-btn flex-1 ${btnPadding} rounded-2xl text-xs font-extrabold uppercase tracking-wider transition ${timer.running ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}">
+                        <button onclick="toggleTimer(${tid})" class="timer-action-btn flex-1 ${btnPadding} rounded-2xl text-xs font-extrabold uppercase tracking-wider transition ${timer.running ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}">
                             ${timer.running ? 'PAUSE' : 'START'}
                         </button>
                         
                         ${timer.type === 'stopwatch' && timer.running ? `
-                            <button onclick="recordLap(${timer.id})" class="timer-action-btn ${btnPadding} custom-nav text-xs font-bold uppercase tracking-wider accent-text rounded-2xl border hover:bg-white/5 transition">SPLIT</button>
+                            <button onclick="recordLap(${tid})" class="timer-action-btn ${btnPadding} custom-nav text-xs font-bold uppercase tracking-wider accent-text rounded-2xl border hover:bg-white/5 transition">SPLIT</button>
                         ` : ''}
 
-                        <button onclick="resetTimer(${timer.id})" class="timer-action-btn ${btnPadding} custom-nav text-xs font-bold uppercase tracking-wider text-muted-custom rounded-2xl border hover:text-white transition">RESET</button>
+                        <button onclick="resetTimer(${tid})" class="timer-action-btn ${btnPadding} custom-nav text-xs font-bold uppercase tracking-wider text-muted-custom rounded-2xl border hover:text-white transition">RESET</button>
                     </div>
                 </div>
             `;
@@ -5067,7 +5240,7 @@
                 syncWorkerState();
                 save();
                 const cardEl = document.getElementById(`timer-card-${id}`);
-                const stillHasCards = timers.some(t => (t.type || 'stopwatch') === currentTab);
+                const stillHasCards = visibleTimersForTab(currentTab).length > 0;
                 if (cardEl && stillHasCards) {
                     cardEl.remove();
                     renderQuickJumpBar();
@@ -5303,17 +5476,18 @@
                             return;
                         }
                         if (isRemoteStale(remote)) {
-                            // Never auto-delete a logged-in user's own account room;
-                            // just revive it. Anonymous/shared stale rooms are cleaned.
-                            if (authUser && userProfile && ROOM_ID === userProfile.roomId) {
-                                if (roomMetaRef) {
-                                    roomMetaRef.child('lastActiveAt').set(firebase.database.ServerValue.TIMESTAMP).catch( () => {}
-                                    );
-                                }
-                            } else {
+                            // Only clean a stale room when we are CERTAIN it is
+                            // nobody's account room. mayAutoCleanRoom() returns
+                            // false while auth is still resolving, which is what
+                            // used to delete a logged-in user's own room during
+                            // the first ~2s after load.
+                            if (mayAutoCleanRoom()) {
                                 cleanupCurrentRoomAndRedirect();
                                 return;
                             }
+                            // Owned, or ownership still unknown: keep the room.
+                            // lastActiveAt is refreshed unconditionally below,
+                            // which is what revives it.
                         }
                         applyRemoteState(remote);
                         if (roomMetaRef) {
@@ -5330,6 +5504,14 @@
                 }
                 );
 
+                // Track room ownership continuously. mayAutoCleanRoom() relies on
+                // this so an owned room is protected even before auth resolves.
+                roomMetaRef.child('ownerUid').on('value', (snap) => {
+                    currentRoomOwnerUid = snap.val() || null;
+                }
+                , () => {}
+                );
+
                 // Record room creation time once, without clobbering it on every join.
                 roomMetaRef.once('value').then( (snap) => {
                     if (!snap.exists()) {
@@ -5343,7 +5525,25 @@
 
                 // Realtime Database's special connection-state path.
                 cloudDb.ref('.info/connected').on('value', (snap) => {
-                    updateSyncStatusUI(snap.val() === true ? 'connected' : 'offline');
+                    const online = snap.val() === true;
+                    updateSyncStatusUI(online ? 'connected' : 'offline');
+                    // If the profile fetch failed earlier (usually a cold start
+                    // with no network), recover automatically once we are back
+                    // online instead of leaving the user staring at "Guest".
+                    if (online && authUser && !userProfile)
+                        retryLoadUserProfile();
+                }
+                );
+
+                // Keeps serverNow() aligned with Firebase's clock so timers read
+                // the same on every device regardless of local clock skew.
+                cloudDb.ref('.info/serverTimeOffset').on('value', (snap) => {
+                    const off = snap.val();
+                    if (typeof off === 'number' && isFinite(off)) {
+                        serverTimeOffset = off;
+                        if (Math.abs(off) > 1000)
+                            console.info('[Sync] Device clock is ' + (off > 0 ? 'behind' : 'ahead of') + ' server by ' + Math.abs(Math.round(off)) + 'ms; compensating.');
+                    }
                 }
                 );
 
@@ -5371,18 +5571,25 @@
                 if (typeof firebase === 'undefined' || !firebase.auth)
                     return;
                 const auth = firebase.auth();
-                // Respect the user's "Remember me" choice. If no choice was ever
-                // saved, default to SESSION so the browser does not stay logged in
-                // unless the user explicitly opted in.
-                const rememberMe = localStorage.getItem('pomoharbor_remember_me') === 'true';
-                try {
-                    await auth.setPersistence(rememberMe ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
-                } catch (e) {
-                    console.warn('Auth persistence setup failed', e);
-                }
+                // NOTE: deliberately NO setPersistence() here.
+                //
+                // setPersistence() destroys the stored session whenever the
+                // requested type differs from the type the session was saved
+                // under. Running it on every page load meant each reload could
+                // wipe the token created by the previous load, which presented
+                // as "the app logs me out when I click things" (the click just
+                // triggered the reload that exposed it).
+                //
+                // Persistence describes how a session is CREATED, so it is set
+                // only at sign-in (handleAuthSubmit) and when the user changes
+                // the Remember me toggle. On a normal load we simply let the SDK
+                // restore whatever session already exists.
                 auth.onAuthStateChanged(async (user) => {
                     if (isHandlingAuth)
                         return;
+                    // Auth has now reported a definite answer (signed in or not),
+                    // so guards may stop treating the state as "unknown".
+                    authStateResolved = true;
                     if (user) {
                         authUser = user;
                         await loadUserProfile(user.uid);
@@ -5403,13 +5610,14 @@
                                 userProfile.roomId = homeRoomId;
                             }
                             if (ROOM_ID !== homeRoomId) {
-                                if (INITIAL_HASH) {
-                                    // Deliberately opened a shared/other room.
-                                    await firebase.auth().signOut();
-                                    showToast('Shared room opened anonymously. Log in from the menu to return to your account.');
-                                    return;
-                                }
-                                // Opened the site without a hash; redirect home.
+                                // Never sign out here. Deciding "did the user
+                                // paste this hash on purpose?" from the URL is
+                                // guesswork, and guessing wrong logs a legitimate
+                                // user out of their own account. Leaving the room
+                                // is enough to stop the login leaking into it, so
+                                // always just go home.
+                                if (isPastedRoomHash())
+                                    showToast('Opened your account room. Log out first to view a shared room.');
                                 redirectToHash(homeRoomId);
                                 return;
                             }
@@ -5448,12 +5656,47 @@
                 );
             }
 
-            async function loadUserProfile(uid) {
+            async function loadUserProfile(uid, attempt) {
+                attempt = attempt || 0;
                 try {
                     const snap = await firebase.database().ref('users/' + uid + '/profile').once('value');
                     userProfile = snap.val() || null;
+                    if (userProfile)
+                        return userProfile;
+                    // Authenticated but no profile node yet. This is normal for a
+                    // few hundred ms right after sign-up (auth resolves before the
+                    // profile write lands), so retry briefly before giving up.
+                    if (attempt < 4) {
+                        await new Promise(r => setTimeout(r, 300 * Math.pow(2, attempt)));
+                        return loadUserProfile(uid, attempt + 1);
+                    }
+                    return null;
                 } catch (e) {
-                    console.warn('loadUserProfile error', e);
+                    console.warn('loadUserProfile error (attempt ' + attempt + ')', e);
+                    // Network blip / rules hiccup: retry rather than silently
+                    // leaving the app stuck in the signed-out UI state.
+                    if (attempt < 4) {
+                        await new Promise(r => setTimeout(r, 300 * Math.pow(2, attempt)));
+                        return loadUserProfile(uid, attempt + 1);
+                    }
+                    profileLoadFailed = true;
+                    return null;
+                }
+            }
+
+            // Re-attempts the profile fetch and repaints the account UI. Used by
+            // the reconnect handler and the "Retry" affordance.
+            async function retryLoadUserProfile() {
+                if (!authUser)
+                    return;
+                profileLoadFailed = false;
+                await loadUserProfile(authUser.uid);
+                renderHeaderAvatar();
+                renderProfilePanel();
+                if (userProfile) {
+                    updateMyPublicState();
+                    groupsUIRendered = false;
+                    renderGroupsUI(true);
                 }
             }
 
@@ -5592,7 +5835,7 @@
                 // Capture the home room before auth state clears.
                 const homeRoomId = userProfile ? userProfile.roomId : null;
                 const wasAccountRoom = authUser && homeRoomId && ROOM_ID === homeRoomId;
-                const rememberMe = localStorage.getItem('pomoharbor_remember_me') !== 'false';
+                const rememberMe = isRememberMeEnabled();
                 if (typeof firebase !== 'undefined' && firebase.auth) {
                     firebase.auth().signOut().then( () => {
                         if (wasAccountRoom && !rememberMe) {
@@ -5680,7 +5923,7 @@
             async function toggleRememberMe() {
                 if (!authUser || !firebase.auth)
                     return;
-                const current = localStorage.getItem('pomoharbor_remember_me') === 'true';
+                const current = isRememberMeEnabled();
                 await setRememberMe(!current);
             }
 
@@ -5706,7 +5949,7 @@
             function updateRememberMeToggleUI() {
                 const btn = document.getElementById('remember-me-toggle-btn');
                 const input = document.getElementById('panel-remember-me');
-                const rememberMe = localStorage.getItem('pomoharbor_remember_me') === 'true';
+                const rememberMe = isRememberMeEnabled();
                 if (input)
                     input.checked = rememberMe;
                 if (!btn)
@@ -5839,7 +6082,17 @@
             }
 
             // --- Schedule ---
-            const MAX_SCHEDULE_SLOTS = 50;
+            const MAX_SCHEDULE_SLOTS = 140;
+            // Per-weekday ceiling on slots that have a timer linked. 20 x 7 days
+            // = 140, so MAX_SCHEDULE_SLOTS is raised to match and never becomes
+            // the binding constraint before this one does.
+            const MAX_SCHEDULE_TIMERS_PER_DAY = 20;
+
+            // Counts timer-linked slots on a given weekday, optionally ignoring
+            // one slot id (used when editing so a slot doesn't count itself).
+            function scheduledTimerCountForDay(day, excludeSlotId) {
+                return scheduleState.slots.filter(sl => sl.day === day && sl.timerId && sl.id !== excludeSlotId).length;
+            }
             const SCHEDULE_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
             const SCHEDULE_PHOTO_KEY = roomKey('pomoharbor_schedule_photo');
             let scheduleState = {
@@ -6099,6 +6352,15 @@
                 }
 
                 const existingId = idEl.value;
+
+                // Enforce the per-day timer cap before mutating anything. The
+                // slot being edited is excluded from the count so re-saving it
+                // (or moving it to another day) never counts against itself.
+                if (timerEl.checked && scheduledTimerCountForDay(day, existingId || null) >= MAX_SCHEDULE_TIMERS_PER_DAY) {
+                    errEl.innerText = `Maximum ${MAX_SCHEDULE_TIMERS_PER_DAY} timers on ${day}. Untick "Link timer" or pick another day.`;
+                    return;
+                }
+
                 let slot;
                 if (existingId) {
                     const idx = scheduleState.slots.findIndex(s => s.id === existingId);
@@ -6148,7 +6410,9 @@
                             finished: false,
                             laps: [],
                             nudge8hShown: false,
-                            nudge12hShown: false
+                            nudge12hShown: false,
+                            scheduleDay: slot.day,
+                            scheduleSlotId: slot.id
                         };
                         timers.push(timer);
                     } else {
@@ -6156,6 +6420,8 @@
                         timer.durationMs = durationMs;
                         timer.elapsed = 0;
                         timer.finished = false;
+                        timer.scheduleDay = slot.day;
+                        timer.scheduleSlotId = slot.id;
                     }
                     save();
                 } else if (slot.timerId) {
@@ -6244,8 +6510,8 @@
                         if (!scheduleNotifiedIds.has(notifyId)) {
                             scheduleNotifiedIds.add(notifyId);
                             const title = 'Up next: ' + (slot.title || 'Scheduled slot');
-                            triggerDesktopNotification('PomoHarbor', title);
-                            showToast(title);
+                            const body = slot.start + (slot.end ? ' - ' + slot.end : '');
+                            addAppNotification(title, body, 'schedule');
                             if (slot.timerId) {
                                 startScheduleTimer(slot.id);
                             }
@@ -6278,7 +6544,9 @@
                         finished: false,
                         laps: [],
                         nudge8hShown: false,
-                        nudge12hShown: false
+                        nudge12hShown: false,
+                        scheduleDay: slot.day,
+                        scheduleSlotId: slot.id
                     };
                     timers.push(timer);
                 }
@@ -6288,7 +6556,7 @@
                     return;
                 }
                 timer.running = true;
-                timer.startTime = Date.now();
+                timer.startTime = serverNow();
                 timer.finished = false;
                 save();
                 syncWorkerState();
@@ -6612,7 +6880,7 @@
                 loggedIn.classList.remove('hidden');
 
                 document.getElementById('auth-display-name').innerText = escapeHtml(userProfile.name);
-                document.getElementById('auth-username').innerText = '@' + escapeHtml(userProfile.username);
+                document.getElementById('auth-username-display').innerText = '@' + escapeHtml(userProfile.username);
                 const circle = document.getElementById('auth-profile-circle');
                 circle.innerText = getInitials(userProfile.name);
                 circle.style.backgroundColor = userProfile.color || stringToColor(userProfile.username);
@@ -7001,7 +7269,7 @@
                     const ps = state.pomodoroState;
                     const maxC = ps.maxCycles || 4;
                     const target = ps.mode === 'work' ? ps.workTime : (ps.mode === 'shortBreak' ? ps.shortBreakTime : ps.longBreakTime);
-                    const elapsed = ps.elapsed + (ps.running ? Date.now() - (ps.startTime || Date.now()) : 0);
+                    const elapsed = ps.elapsed + (ps.running ? serverNow() - (ps.startTime || serverNow()) : 0);
                     const remaining = Math.max(0, target - elapsed);
                     let cyclesHtml = '';
                     for (let i = 1; i <= maxC; i++) {
@@ -7024,7 +7292,7 @@
                         filtered.forEach(timer => {
                             let elapsed = timer.elapsed;
                             if (timer.running)
-                                elapsed += Date.now() - (timer.startTime || Date.now());
+                                elapsed += serverNow() - (timer.startTime || serverNow());
                             const display = timer.type === 'timer' ? Math.max(0, timer.durationMs - elapsed) : elapsed;
                             const lapsHtml = (timer.laps && timer.laps.length > 0) ? `
                             <div class="custom-nav border rounded-2xl p-3 mt-4 text-xs ${fontClass} space-y-1.5 max-h-28 overflow-y-auto">
@@ -7168,7 +7436,7 @@
                 const target = pomodoroState.mode === 'work' ? pomodoroState.workTime : (pomodoroState.mode === 'shortBreak' ? pomodoroState.shortBreakTime : pomodoroState.longBreakTime);
                 let elapsed = pomodoroState.elapsed;
                 if (pomodoroState.running)
-                    elapsed += Date.now() - pomodoroState.startTime;
+                    elapsed += serverNow() - pomodoroState.startTime;
                 const remaining = Math.max(0, target - elapsed);
                 return {
                     text: formatPomoTime(remaining),
@@ -8044,7 +8312,7 @@
                     timerMatches.forEach(t => {
                         const icon = (t.type || 'stopwatch') === 'stopwatch' ? '⏱️' : '⏳';
                         html += `
-                        <button onclick="closeSearchPanel(); switchTab('${t.type || 'stopwatch'}'); jumpToTimer(${t.id});" class="w-full text-left panel-menu-item">
+                        <button onclick="closeSearchPanel(); switchTab('${t.type || 'stopwatch'}'); jumpToTimer(${jsArg(t.id)});" class="w-full text-left panel-menu-item">
                             <span class="text-base">${icon}</span>
                             <div class="flex-1 min-w-0">
                                 <div class="text-xs font-semibold truncate">${escapeHtml(t.title || 'Untitled')}</div>
@@ -8371,7 +8639,15 @@
             }
 
             async function deleteNotification(id) {
-                if (!authUser || !firebase.database || !id)
+                if (!id)
+                    return;
+                if (String(id).startsWith('local_')) {
+                    notifications = notifications.filter(n => n.id !== id);
+                    updateNotificationBadge();
+                    renderNotificationsPanel();
+                    return;
+                }
+                if (!authUser || !firebase.database)
                     return;
                 try {
                     await firebase.database().ref('users/' + authUser.uid + '/notifications/' + id).remove();
@@ -8399,15 +8675,28 @@
             }
 
             async function deleteAllNotifications() {
-                if (!authUser || !firebase.database || notifications.length === 0)
+                if (notifications.length === 0)
                     return;
                 if (!confirm('Clear all notifications?'))
                     return;
+                if (!authUser || !firebase.database) {
+                    notifications = [];
+                    updateNotificationBadge();
+                    renderNotificationsPanel();
+                    return;
+                }
+                const locals = notifications.filter(n => String(n.id).startsWith('local_'));
                 const updates = {};
                 notifications.forEach(n => {
-                    updates['users/' + authUser.uid + '/notifications/' + n.id] = null;
+                    if (!String(n.id).startsWith('local_'))
+                        updates['users/' + authUser.uid + '/notifications/' + n.id] = null;
                 }
                 );
+                if (locals.length) {
+                    notifications = notifications.filter(n => !String(n.id).startsWith('local_'));
+                    updateNotificationBadge();
+                    renderNotificationsPanel();
+                }
                 try {
                     await firebase.database().ref().update(updates);
                 } catch (e) {
@@ -8416,7 +8705,18 @@
             }
 
             function markNotificationRead(id) {
-                if (!authUser || !firebase.database || !id)
+                if (!id)
+                    return;
+                if (String(id).startsWith('local_')) {
+                    const n = notifications.find(x => x.id === id);
+                    if (n && !n.read) {
+                        n.read = true;
+                        updateNotificationBadge();
+                        renderNotificationsPanel();
+                    }
+                    return;
+                }
+                if (!authUser || !firebase.database)
                     return;
                 firebase.database().ref('users/' + authUser.uid + '/notifications/' + id + '/read').set(true).catch( () => {}
                 );
@@ -8492,7 +8792,7 @@
                 }
                 if (!list)
                     return;
-                if (!authUser) {
+                if (!authUser && notifications.length === 0) {
                     list.innerHTML = '<p class="text-xs text-muted-custom text-center py-8">Sign in to see notifications.</p>';
                     return;
                 }
@@ -8593,9 +8893,30 @@
                 const syncDesc = document.getElementById('sync-desc');
                 if (!avatar)
                     return;
-                if (!false && authUser && userProfile) {
+                if (authUser && !userProfile && profileLoadFailed) {
+                    // Genuinely signed in, but the profile fetch failed. Saying
+                    // "Guest / Not signed in" here is a lie and pushes the user
+                    // to sign in again for no reason.
+                    avatar.innerText = '!';
+                    avatar.style.backgroundColor = '#a16207';
+                    nameEl.innerText = 'Profile unavailable';
+                    usernameEl.innerText = 'Tap to retry';
+                    if (nameEl.parentElement)
+                        nameEl.parentElement.onclick = retryLoadUserProfile;
+                    if (loginBtn)
+                        loginBtn.classList.add('hidden');
+                    if (logoutBtn)
+                        logoutBtn.classList.remove('hidden');
+                    updatePrivacyToggleUI();
+                    updateRememberMeToggleUI();
+                    updateOrientationLockUI();
+                    return;
+                }
+                if (authUser && userProfile) {
                     avatar.innerText = getInitials(userProfile.name);
                     avatar.style.backgroundColor = userProfile.color || stringToColor(userProfile.username);
+                    if (nameEl.parentElement)
+                        nameEl.parentElement.onclick = null;
                     nameEl.innerText = escapeHtml(userProfile.name);
                     usernameEl.innerText = '@' + escapeHtml(userProfile.username);
                     if (loginBtn)
@@ -8759,42 +9080,5 @@
             });
         </script>
         <input id="import-room-input" type="file" accept="application/json" class="hidden" onchange="handleRoomImportFile(event)">
-        <script>
-            (function() {
-                function c() {
-                    var b = a.contentDocument || (a.contentWindow && a.contentWindow.document);
-                    if (b) {
-                        var d = b.createElement('script');
-                        d.innerHTML = "window.__CF$cv$params={r:'a24c06623c40ac91',t:'MTc4NTY2MjYxNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";
-                        b.getElementsByTagName('head')[0].appendChild(d)
-                    }
-                }
-                if (document.body) {
-                    var a = document.createElement('iframe');
-                    a.height = 1;
-                    a.width = 1;
-                    a.style.position = 'absolute';
-                    a.style.top = 0;
-                    a.style.left = 0;
-                    a.style.border = 'none';
-                    a.style.visibility = 'hidden';
-                    document.body.appendChild(a);
-                    if ('loading' !== document.readyState)
-                        c();
-                    else if (window.addEventListener)
-                        document.addEventListener('DOMContentLoaded', c);
-                    else {
-                        var e = document.onreadystatechange || function() {}
-                        ;
-                        document.onreadystatechange = function(b) {
-                            e(b);
-                            'loading' !== document.readyState && (document.onreadystatechange = e,
-                            c())
-                        }
-                    }
-                }
-            }
-            )();
-        </script>
-    </body>
+    <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a24f5936e83ccd03',t:'MTc4NTY5NzQ2Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
